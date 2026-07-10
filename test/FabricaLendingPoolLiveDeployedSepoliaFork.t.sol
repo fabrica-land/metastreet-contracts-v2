@@ -19,7 +19,7 @@ import "fabrica-lending-pools/interfaces/IPool.sol";
  * the deployed identity/config that Phase A read with `cast`.
  *
  * Run:
- *   forge test --match-contract MetaStreetPoolLiveDeployedSepoliaForkTest \
+ *   forge test --match-contract FabricaLendingPoolLiveDeployedSepoliaForkTest \
  *              --fork-url $SEPOLIA_RPC_URL -vvv
  *
  * Without --fork-url the onlyFork modifier short-circuits (Sepolia USDC / pool
@@ -32,8 +32,8 @@ import "fabrica-lending-pools/interfaces/IPool.sol";
  * Time-locked paths (default → grace → liquidate) and the signed-oracle borrow
  * origination are intentionally NOT driven against the live pool here — a live
  * testnet has no time-travel and we do not hold the oracle signer. Those are
- * covered by the grace/borrower fork suites (MetaStreetPoolGracePeriod*.t.sol,
- * MetaStreetPoolBorrowerForkUpgrade.t.sol) and, where cheap, by live EOA
+ * covered by the grace/borrower fork suites (FabricaLendingPoolGracePeriod*.t.sol,
+ * FabricaLendingPoolBorrowerForkUpgrade.t.sol) and, where cheap, by live EOA
  * transactions captured in the ENG-3115 execution report. The auction
  * liquidator (EnglishAuctionCollateralLiquidator) is vendored upstream-verbatim
  * @ 8ed467d with zero Fabrica modifications, so its bid/settle/anti-snipe
@@ -72,7 +72,7 @@ interface IOwnable {
     function owner() external view returns (address);
 }
 
-contract MetaStreetPoolLiveDeployedSepoliaForkTest is Test {
+contract FabricaLendingPoolLiveDeployedSepoliaForkTest is Test {
     /* Live Sepolia deployment (ENG-3078 stack; see LENDING-POOL-RUNBOOK.md). */
     address internal constant POOL = 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B;
     address internal constant BEACON = 0xe1B74Cbf78a693e6289dc1C983D8BC2E5097139e;

@@ -9,14 +9,14 @@ import "./concretes/TestPool.sol";
 
 /**
  * Sepolia-fork test for Pool.depositFor end-to-end against real Sepolia USDC.
- * Run with: forge test --match-contract MetaStreetPoolDepositForSepoliaForkTest \
+ * Run with: forge test --match-contract FabricaLendingPoolDepositForSepoliaForkTest \
  *                       --fork-url $SEPOLIA_RPC_URL -vvv
  *
  * When run without --fork-url, the onlyFork modifier short-circuits each test
  * (Sepolia USDC bytecode is absent on the local 31337 chain). Mirrors the skip
  * pattern in FabricaTokenSepoliaFork.t.sol.
  */
-contract MetaStreetPoolDepositForSepoliaForkTest is Test {
+contract FabricaLendingPoolDepositForSepoliaForkTest is Test {
     /* Circle's USDC on Sepolia (6 decimals). */
     address constant USDC = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
 

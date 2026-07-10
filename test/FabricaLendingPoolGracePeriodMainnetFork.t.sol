@@ -13,12 +13,12 @@ import "./concretes/MockCollateralLiquidator.sol";
  * period. Exercises the guard against production-shaped USDC bytecode (the
  * SafeERC20 dispatch / decimals path) rather than a clean-room mock currency.
  *
- * Run with: forge test --match-contract MetaStreetPoolGracePeriodMainnetForkTest \
+ * Run with: forge test --match-contract FabricaLendingPoolGracePeriodMainnetForkTest \
  *                       --fork-url $MAINNET_RPC_URL -vvv
  *
  * When run without --fork-url, the onlyFork modifier short-circuits each test
  * (mainnet USDC bytecode is absent on the local 31337 chain). Mirrors the skip
- * pattern in MetaStreetPoolRepaySepoliaForkTest.
+ * pattern in FabricaLendingPoolRepaySepoliaForkTest.
  *
  * The pool is freshly deployed on the fork — there is no pre-existing
  * Fabrica-forked pool on mainnet yet (that's the downstream mainnet-deploy
@@ -27,7 +27,7 @@ import "./concretes/MockCollateralLiquidator.sol";
  * liquidator hand-off, so the assertion is on the time gate + status
  * transition, not auction proceeds.
  */
-contract MetaStreetPoolGracePeriodMainnetForkTest is GracePeriodTestBase {
+contract FabricaLendingPoolGracePeriodMainnetForkTest is GracePeriodTestBase {
     /* Circle's USDC on Ethereum mainnet (6 decimals). */
     address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
 

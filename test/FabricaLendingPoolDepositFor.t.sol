@@ -9,7 +9,7 @@ import "fabrica-lending-pools/tokenization/ERC20DepositTokenImplementation.sol";
 import "./concretes/TestPool.sol";
 import "./concretes/TestERC20.sol";
 
-contract MetaStreetPoolDepositForTest is Test {
+contract FabricaLendingPoolDepositForTest is Test {
     /* Mirror Pool.Deposited so vm.expectEmit can match it. */
     event Deposited(address indexed account, uint128 indexed tick, uint256 amount, uint256 shares);
     /* Mirror ERC20 Transfer for the wrapper-mint event check. */

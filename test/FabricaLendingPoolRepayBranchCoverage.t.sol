@@ -12,7 +12,7 @@ import "./concretes/TestRepayablePool.sol";
 /**
  * Branch coverage for the ENG-3076 edits to `Pool.repay`'s currency-token
  * pull. The happy path (transferFrom returns true) is exercised by every
- * test in `MetaStreetPoolRepay.t.sol`. The two non-happy branches of the
+ * test in `FabricaLendingPoolRepay.t.sol`. The two non-happy branches of the
  * `require(currencyToken.transferFrom(msg.sender, address(this), unscaledRepayment))`
  * statement are exercised here:
  *
@@ -23,7 +23,7 @@ import "./concretes/TestRepayablePool.sol";
  * collateral remains escrowed and the loan can still be repaid by an
  * ERC-20-compliant caller.
  */
-contract MetaStreetPoolRepayBranchCoverage is Test {
+contract FabricaLendingPoolRepayBranchCoverage is Test {
     TestRepayablePool internal pool;
     TestERC721 internal nft;
     ERC20DepositTokenImplementation internal erc20DepositTokenImpl;

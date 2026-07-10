@@ -19,7 +19,7 @@ import "./concretes/TestERC20.sol";
  * principal) and a no-op MockCollateralLiquidator — the focus is the
  * time-based guard and the loan-status transitions.
  */
-contract MetaStreetPoolGracePeriodTest is GracePeriodTestBase {
+contract FabricaLendingPoolGracePeriodTest is GracePeriodTestBase {
     MockCollateralLiquidator internal liquidator;
     TestERC20 internal currency;
     ERC20DepositTokenImplementation internal erc20DepositTokenImpl;

@@ -26,7 +26,7 @@ import "./concretes/TestERC721.sol";
  * principal, adminFee == 0) so the designated-borrower routing is the focus,
  * not the pricing math.
  */
-contract MetaStreetPoolBorrowerParamTest is Test {
+contract FabricaLendingPoolBorrowerParamTest is Test {
     /* Mirror IPool.LoanOriginated so vm.getRecordedLogs() can identify it by topic. */
     event LoanOriginated(bytes32 indexed loanReceiptHash, bytes loanReceipt);
 

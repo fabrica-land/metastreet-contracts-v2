@@ -18,7 +18,7 @@ import "./concretes/TestERC721.sol";
  * repayment == principal — the access-control surface is the focus, not the
  * pricing math.
  */
-contract MetaStreetPoolRepayTest is Test {
+contract FabricaLendingPoolRepayTest is Test {
     /* Mirror IPool.LoanOriginated so vm.getRecordedLogs() can identify it by topic. */
     event LoanOriginated(bytes32 indexed loanReceiptHash, bytes loanReceipt);
 

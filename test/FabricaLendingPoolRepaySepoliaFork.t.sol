@@ -14,12 +14,12 @@ import "./concretes/TestERC721.sol";
  * against Fabrica's forked MetaStreet pool, with the original borrower
  * receiving the collateral.
  *
- * Run with: forge test --match-contract MetaStreetPoolRepaySepoliaForkTest \
+ * Run with: forge test --match-contract FabricaLendingPoolRepaySepoliaForkTest \
  *                       --fork-url $SEPOLIA_RPC_URL -vvv
  *
  * When run without --fork-url, the onlyFork modifier short-circuits each
  * test (Sepolia USDC bytecode is absent on the local 31337 chain). Mirrors
- * the skip pattern in MetaStreetPoolDepositForSepoliaForkTest.
+ * the skip pattern in FabricaLendingPoolDepositForSepoliaForkTest.
  *
  * The pool is freshly deployed on the fork — there is no pre-existing
  * Fabrica-forked pool on Sepolia yet (that's the next ticket post-merge).
@@ -27,7 +27,7 @@ import "./concretes/TestERC721.sol";
  * dispatch path against production-shaped token bytecode (return-data
  * handling, decimals lookup) rather than a clean-room mock.
  */
-contract MetaStreetPoolRepaySepoliaForkTest is Test {
+contract FabricaLendingPoolRepaySepoliaForkTest is Test {
     /* Circle's USDC on Sepolia (6 decimals). */
     address constant USDC = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
 

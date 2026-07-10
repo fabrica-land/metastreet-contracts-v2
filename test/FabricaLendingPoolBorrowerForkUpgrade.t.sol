@@ -24,8 +24,8 @@ import "./concretes/TestERC721.sol";
  * FabricaLendingPoolStackDeploy.s.sol / FabricaLendingPoolUpgrade.s.sol) —
  * against production-shaped currency (real USDC) on BOTH target chains:
  *
- *   - Sepolia:  MetaStreetPoolBorrowerForkUpgradeSepoliaTest  (--fork-url $SEPOLIA_RPC_URL)
- *   - Mainnet:  MetaStreetPoolBorrowerForkUpgradeMainnetTest  (--fork-url $MAINNET_RPC_URL)
+ *   - Sepolia:  FabricaLendingPoolBorrowerForkUpgradeSepoliaTest  (--fork-url $SEPOLIA_RPC_URL)
+ *   - Mainnet:  FabricaLendingPoolBorrowerForkUpgradeMainnetTest  (--fork-url $MAINNET_RPC_URL)
  *
  * setUp: deploy a Pool impl (forge auto-deploys + links the NEW BorrowLogic /
  * DepositLogic from this branch), put it behind an UpgradeableBeacon, create a
@@ -46,7 +46,7 @@ import "./concretes/TestERC721.sol";
  * The onlyFork modifier short-circuits when the chain's USDC bytecode is absent
  * (i.e. run without the matching --fork-url), mirroring the existing fork tests.
  */
-abstract contract MetaStreetPoolBorrowerForkUpgradeBase is Test {
+abstract contract FabricaLendingPoolBorrowerForkUpgradeBase is Test {
     /* Mirror ERC20 Transfer for the deposit-token wrapper event checks. */
     event Transfer(address indexed from, address indexed to, uint256 value);
 
@@ -243,14 +243,14 @@ abstract contract MetaStreetPoolBorrowerForkUpgradeBase is Test {
     }
 }
 
-contract MetaStreetPoolBorrowerForkUpgradeSepoliaTest is MetaStreetPoolBorrowerForkUpgradeBase {
+contract FabricaLendingPoolBorrowerForkUpgradeSepoliaTest is FabricaLendingPoolBorrowerForkUpgradeBase {
     /* Circle's USDC on Sepolia (6 decimals). */
     function _usdc() internal pure override returns (address) {
         return 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
     }
 }
 
-contract MetaStreetPoolBorrowerForkUpgradeMainnetTest is MetaStreetPoolBorrowerForkUpgradeBase {
+contract FabricaLendingPoolBorrowerForkUpgradeMainnetTest is FabricaLendingPoolBorrowerForkUpgradeBase {
     /* Circle's USDC on Ethereum mainnet (6 decimals). */
     function _usdc() internal pure override returns (address) {
         return 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
