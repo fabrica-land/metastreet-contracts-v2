@@ -3,6 +3,8 @@ pragma solidity 0.8.25;
 
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "./Pool.sol";
 import "./LoanReceipt.sol";
@@ -19,6 +21,7 @@ import "./integrations/DelegateCash/IDelegateRegistryV2.sol";
 library BorrowLogic {
     using SafeCast for uint256;
     using LiquidityLogic for LiquidityLogic.Liquidity;
+    using SafeERC20 for IERC20;
 
     /**************************************************************************/
     /* Constants */
@@ -224,6 +227,7 @@ library BorrowLogic {
     /**
      * @dev Helper function to handle borrow accounting
      * @param self Pool storage
+     * @param borrower Borrower-of-record / beneficial owner of the collateral
      * @param principal Principal amount in currency tokens
      * @param duration Duration in seconds
      * @param collateralToken Collateral token address
@@ -238,6 +242,7 @@ library BorrowLogic {
      */
     function _borrow(
         Pool.PoolStorage storage self,
+        address borrower,
         uint256 principal,
         uint64 duration,
         address collateralToken,
@@ -249,6 +254,12 @@ library BorrowLogic {
         uint16 count,
         bytes memory collateralWrapperContext
     ) external returns (bytes memory, bytes32) {
+        /* Validate borrower-of-record is non-zero (collateral redemption,
+           liquidation surplus, and refinance control are all keyed off this
+           address; a zero borrower would make the collateral irrecoverable).
+           Lives in the external library, so it costs no Pool concrete bytecode. */
+        if (borrower == address(0)) revert IPool.InvalidParameters();
+
         /* Validate principal is non-zero */
         if (principal == 0) revert IPool.InvalidParameters();
 
@@ -264,7 +275,7 @@ library BorrowLogic {
             principal: principal,
             repayment: repayment,
             adminFee: adminFee,
-            borrower: msg.sender,
+            borrower: borrower,
             maturity: (block.timestamp + duration).toUint64(),
             duration: duration,
             collateralToken: collateralToken,
@@ -298,6 +309,30 @@ library BorrowLogic {
         self.loans[loanReceiptHash] = Pool.LoanStatus.Active;
 
         return (encodedLoanReceipt, loanReceiptHash);
+    }
+
+    /**
+     * @dev Settle a freshly-originated loan: pay principal to the caller and
+     * emit LoanOriginated. Split off the Pool concrete to reclaim EIP-170
+     * bytecode budget (Fabrica ENG-3231). The Pool escrows the collateral
+     * BEFORE calling this, so the collateral-in-then-principal-out ordering is
+     * preserved. Principal is always paid to msg.sender (the caller/router),
+     * never to the designated borrower.
+     * @param self Pool storage
+     * @param principal Unscaled principal amount to transfer to msg.sender
+     * @param loanReceiptHash Loan receipt hash
+     * @param encodedLoanReceipt Encoded loan receipt
+     */
+    function _settleBorrow(
+        Pool.PoolStorage storage self,
+        uint256 principal,
+        bytes32 loanReceiptHash,
+        bytes memory encodedLoanReceipt
+    ) external {
+        /* Transfer principal from pool to msg.sender */
+        self.currencyToken.safeTransfer(msg.sender, principal);
+        /* Emit LoanOriginated */
+        emit IPool.LoanOriginated(loanReceiptHash, encodedLoanReceipt);
     }
 
     /**
