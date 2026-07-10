@@ -30,5 +30,30 @@ bytecode_hash = "None"
 paths = "contracts/configurations/WeightedRateERC1155CollectionPool.sol"
 max_optimizer_runs = 1
 
+# Per-chain external-library link addresses for the live Fabrica lending pool.
+# WeightedRateERC1155CollectionPool links 4 libraries (BorrowLogic, DepositLogic,
+# LiquidityLogic, ERC20DepositTokenFactory). forge cannot key `libraries` by chain,
+# so per-chain linking is a named profile selected with FOUNDRY_PROFILE=<chain>,
+# e.g. `FOUNDRY_PROFILE=mainnet forge script script/FabricaLendingPoolUpgrade.s.sol`.
+# Named profiles inherit the default profile's compilation settings. Addresses are
+# each chain's canonical, currently-live deployments (mainnet pool
+# 0x842ffbf1ad5314503904626122376f71603a3cf9, beacon impl
+# 0x4b1576Df8D8911d2F404391a7f8fAcEfA7F4b6da).
+[profile.mainnet]
+libraries = [
+    "contracts/BorrowLogic.sol:BorrowLogic:0x6749f43BB2f4d5af0ce0fc3Fc4756Dc1d44F1d73",
+    "contracts/DepositLogic.sol:DepositLogic:0xEc7716d72990374EB4E5f72f3B60179F5256d39B",
+    "contracts/LiquidityLogic.sol:LiquidityLogic:0x07e2C0C066F231E57857B7fB3CD51E18D364AAB0",
+    "contracts/tokenization/ERC20DepositTokenFactory.sol:ERC20DepositTokenFactory:0x08ccc36252f61983EE04fd5946eA958bC195090c",
+]
+
+[profile.sepolia]
+libraries = [
+    "contracts/BorrowLogic.sol:BorrowLogic:0x97bD28cd2EC4D226969221574f7EeBE301bf7557",
+    "contracts/DepositLogic.sol:DepositLogic:0xcab821709338df0f718491d0f3038fbD6a16CfbE",
+    "contracts/LiquidityLogic.sol:LiquidityLogic:0xc98899f5A7feFC5146C1574D6b51C0A5C993b505",
+    "contracts/tokenization/ERC20DepositTokenFactory.sol:ERC20DepositTokenFactory:0x8722651F6f79Bde509c48Fc65c37A3b8faf9086D",
+]
+
 [fmt]
 line_length = 120

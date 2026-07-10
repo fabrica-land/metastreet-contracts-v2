@@ -63,6 +63,12 @@ Foundry deploy scripts live in [`script/`](script/):
 - [`FabricaLendingPoolCreate.s.sol`](script/FabricaLendingPoolCreate.s.sol) — instantiate a pool against existing infra.
 - [`FabricaLendingPoolUpgrade.s.sol`](script/FabricaLendingPoolUpgrade.s.sol) — upgrade an existing pool implementation.
 
+Live per-chain deployment addresses (mainnet/sepolia), the beacon-based upgrade
+flow, and deploy-transaction provenance are in
+[`LENDING-POOL-RUNBOOK.md`](LENDING-POOL-RUNBOOK.md). The per-chain external
+library link addresses are pinned in `foundry.toml`'s `[profile.mainnet]` /
+`[profile.sepolia]` (select with `FOUNDRY_PROFILE=<chain>`).
+
 ## File structure
 
 - [`contracts/`](contracts/) — pool smart contracts (upstream layout; see per-file
