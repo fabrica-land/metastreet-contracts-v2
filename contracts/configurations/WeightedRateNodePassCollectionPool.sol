@@ -40,9 +40,10 @@ contract WeightedRateNodePassCollectionPool is
         address delegateRegistryV2,
         address yieldPassFactory,
         address erc20DepositTokenImplementation,
-        address[] memory collateralWrappers
+        address[] memory collateralWrappers,
+        uint64 liquidationGracePeriod_
     )
-        Pool(collateralLiquidator, delegateRegistryV1, delegateRegistryV2, collateralWrappers)
+        Pool(collateralLiquidator, delegateRegistryV1, delegateRegistryV2, collateralWrappers, liquidationGracePeriod_)
         WeightedInterestRateModel()
         NodePassCollectionCollateralFilter(yieldPassFactory)
         ERC20DepositToken(erc20DepositTokenImplementation)

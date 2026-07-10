@@ -70,9 +70,10 @@ contract WeightedRateCollectionBlastPool is
         address delegateRegistryV2,
         address blastPointsOperator,
         address erc20DepositTokenImplementation,
-        address[] memory collateralWrappers
+        address[] memory collateralWrappers,
+        uint64 liquidationGracePeriod_
     )
-        Pool(collateralLiquidator, delegateRegistryV1, delegateRegistryV2, collateralWrappers)
+        Pool(collateralLiquidator, delegateRegistryV1, delegateRegistryV2, collateralWrappers, liquidationGracePeriod_)
         WeightedInterestRateModel()
         ERC20DepositToken(erc20DepositTokenImplementation)
         ExternalPriceOracle()
