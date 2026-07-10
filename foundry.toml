@@ -1,0 +1,34 @@
+[profile.default]
+src = "contracts"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+auto_detect_solc = true
+optimizer = true
+# viaIR + runs=800 mirrors upstream metastreet-contracts-v2's hardhat default;
+# resolves "stack too deep" across the base Pool/logic libraries and the pool
+# configurations.
+via_ir = true
+optimizer_runs = 800
+evm_version = "cancun"
+bytecode_hash = "None"
+cbor_metadata = false
+
+# Only the ERC1155 collection pool (the configuration Fabrica deploys) is grown
+# by the ENG-31xx behavioral deltas past EIP-170's 24576-byte runtime limit at
+# high optimizer runs, so it alone compiles at runs=1 to fit. The other upstream
+# configurations keep the default runs and stay deployable at their own sizes.
+[[profile.default.additional_compiler_profiles]]
+name = "erc1155-size"
+via_ir = true
+optimizer_runs = 1
+evm_version = "cancun"
+bytecode_hash = "None"
+
+[[profile.default.compilation_restrictions]]
+paths = "contracts/configurations/WeightedRateERC1155CollectionPool.sol"
+max_optimizer_runs = 1
+
+[fmt]
+line_length = 120
