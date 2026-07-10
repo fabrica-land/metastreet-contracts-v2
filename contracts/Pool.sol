@@ -992,18 +992,42 @@ abstract contract Pool is
     /**
      * @inheritdoc IPool
      */
-    function deposit(uint128 tick, uint256 amount, uint256 minShares) external nonReentrant returns (uint256) {
-        /* Handle deposit accounting and compute shares */
-        uint128 shares = DepositLogic._deposit(_storage, tick, _scale(amount).toUint128(), minShares.toUint128());
+    function deposit(uint128 tick, uint256 amount, uint256 minShares) external returns (uint256) {
+        /* Wraps depositFor with msg.sender as the beneficiary. No nonReentrant
+           here — depositFor carries the guard, and double-locking the same
+           reentrancy slot from a wrapper would revert every call. */
+        return depositFor(msg.sender, tick, amount, minShares);
+    }
 
-        /* Call token hook */
-        _onExternalTransfer(address(0), msg.sender, tick, shares);
+    /**
+     * @inheritdoc IPool
+     */
+    function depositFor(
+        address recipient,
+        uint128 tick,
+        uint256 amount,
+        uint256 minShares
+    ) public nonReentrant returns (uint256) {
+        /* Validate recipient */
+        if (recipient == address(0)) revert InvalidRecipient();
 
-        /* Transfer deposit amount */
+        /* Handle deposit accounting and credit shares to recipient */
+        uint128 shares = DepositLogic._deposit(
+            _storage,
+            tick,
+            _scale(amount).toUint128(),
+            minShares.toUint128(),
+            recipient
+        );
+
+        /* Call token hook (mints wrapper Transfer event from address(0) to recipient) */
+        _onExternalTransfer(address(0), recipient, tick, shares);
+
+        /* Transfer deposit amount from msg.sender (payer) */
         _storage.currencyToken.safeTransferFrom(msg.sender, address(this), amount);
 
-        /* Emit Deposited */
-        emit Deposited(msg.sender, tick, amount, shares);
+        /* Emit Deposited keyed on recipient */
+        emit Deposited(recipient, tick, amount, shares);
 
         return shares;
     }
@@ -1072,8 +1096,8 @@ abstract contract Pool is
         /* Handle withdraw accounting and compute both shares and amount */
         (uint128 oldShares, uint128 amount) = DepositLogic._withdraw(_storage, srcTick, redemptionId);
 
-        /* Handle deposit accounting and compute new shares */
-        uint128 newShares = DepositLogic._deposit(_storage, dstTick, amount, minShares.toUint128());
+        /* Handle deposit accounting and compute new shares (rebalance keeps msg.sender as beneficiary) */
+        uint128 newShares = DepositLogic._deposit(_storage, dstTick, amount, minShares.toUint128(), msg.sender);
 
         uint256 unscaledAmount = _unscale(amount, false);
 
