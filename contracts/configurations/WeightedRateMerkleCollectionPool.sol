@@ -32,6 +32,8 @@ contract WeightedRateMerkleCollectionPool is
      * @param delegateRegistryV2 Delegation registry v2 contract
      * @param erc20DepositTokenImplementation ERC20 Deposit Token implementation address
      * @param collateralWrappers Collateral wrappers
+     * @param liquidationGracePeriod_ Fabrica ENG-3113: grace period in seconds
+     * between default and when liquidate() may be called
      */
     constructor(
         address collateralLiquidator,

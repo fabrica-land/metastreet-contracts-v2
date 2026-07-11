@@ -27,11 +27,17 @@ own UUPS upgrade runbook in the `fabrica-land/fabrica-v3-contracts` repo.)
 (Addresses sourced from the live Sepolia chain — beacon at slot
 `0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50` of
 the pool, factory + pool addresses cross-referenced with
-[`fabrica-v3-subgraph/networks/sepolia.json`](../fabrica-v3-subgraph/networks/sepolia.json).
+`networks/sepolia.json` in the fabrica-land/fabrica-v3-subgraph repo.
 No broadcast logs existed in this repo prior to ENG-3076; the stack
 was deployed by an earlier process. Running future
 `FabricaLendingPoolStackDeploy.s.sol` / `FabricaLendingPoolUpgrade.s.sol`
 under `--broadcast` will write logs to `broadcast/`.)
+
+> **Note on `broadcast/` provenance:** the carried `FabricaLendingPoolStackDeploy.s.sol`
+> broadcast records the ORIGINAL stack deploy — its BorrowLogic/DepositLogic
+> addresses predate the ENG-3231 library relink. The current, live post-ENG-3231
+> library link addresses are in `foundry.toml`'s `[profile.sepolia]` (and the
+> table above). Do NOT re-derive live link targets from the broadcast JSON.
 
 ### Mainnet
 
@@ -79,6 +85,11 @@ cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'delegationRegistry()(addre
 cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'delegationRegistryV2()(address)' --rpc-url $SEPOLIA_RPC_URL
 cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'getERC20DepositTokenImplementation()(address)' --rpc-url $SEPOLIA_RPC_URL
 cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'collateralWrappers()(address[])' --rpc-url $SEPOLIA_RPC_URL
+# liquidationGracePeriod is a constructor immutable (Fabrica ENG-3113). The
+# upgrade script re-supplies it via FABRICA_LENDING_LIQUIDATION_GRACE_PERIOD
+# (default 1728000 = 20 days); if you forget to export it, the upgrade silently
+# rebakes the grace window. Confirm the intended value against the live impl.
+cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'liquidationGracePeriod()(uint64)' --rpc-url $SEPOLIA_RPC_URL
 ```
 
 ### 2. Run the upgrade
@@ -121,7 +132,7 @@ cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'IMPLEMENTATION_VERSION()(s
 #   1. Borrow against a FabricaToken to mint a loan receipt.
 #   2. Have a non-borrower address (with USDC + allowance) call repay() with that receipt.
 #   3. Verify msg.sender's USDC was pulled and the borrower received their collateral.
-# See MetaStreetPoolRepaySepoliaFork.t.sol for the exact assertion shape.
+# See FabricaLendingPoolRepaySepoliaFork.t.sol for the exact assertion shape.
 ```
 
 ## Upgrade History

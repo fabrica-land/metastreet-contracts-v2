@@ -15,10 +15,19 @@ evm_version = "cancun"
 bytecode_hash = "None"
 cbor_metadata = false
 
-# Only the ERC1155 collection pool (the configuration Fabrica deploys) is grown
-# by the ENG-31xx behavioral deltas past EIP-170's 24576-byte runtime limit at
-# high optimizer runs, so it alone compiles at runs=1 to fit. The other upstream
-# configurations keep the default runs and stay deployable at their own sizes.
+# The ERC1155 collection pool (the configuration Fabrica deploys) is the size-
+# sensitive one, so it compiles at runs=1.
+#
+# KNOWN GAP (ENG-3306): under this fork's forge/solc toolchain the deployable
+# WeightedRateERC1155CollectionPool currently builds to 24,851 bytes runtime —
+# 275 over EIP-170's 24,576-byte limit, so `forge build --sizes` FAILS on it.
+# The live, Etherscan-verified Sepolia impl is 23,628 bytes; the origin
+# fabrica-v3-contracts build reproduces that under the same forge 1.7.1, but this
+# fork does not, and an exhaustive input diff (settings/source/OZ/solc all
+# identical) has not isolated the delta. Reproducing a deployable artifact from
+# this fork is a PREREQUISITE of any future pool upgrade and is tracked
+# separately — it is NOT resolved here. Do not treat this fork as deploy-ready
+# until that gap is closed.
 [[profile.default.additional_compiler_profiles]]
 name = "erc1155-size"
 via_ir = true
@@ -30,23 +39,17 @@ bytecode_hash = "None"
 paths = "contracts/configurations/WeightedRateERC1155CollectionPool.sol"
 max_optimizer_runs = 1
 
-# Per-chain external-library link addresses for the live Fabrica lending pool.
+# Sepolia external-library link addresses for the live Fabrica lending pool.
 # WeightedRateERC1155CollectionPool links 4 libraries (BorrowLogic, DepositLogic,
 # LiquidityLogic, ERC20DepositTokenFactory). forge cannot key `libraries` by chain,
-# so per-chain linking is a named profile selected with FOUNDRY_PROFILE=<chain>,
-# e.g. `FOUNDRY_PROFILE=mainnet forge script script/FabricaLendingPoolUpgrade.s.sol`.
-# Named profiles inherit the default profile's compilation settings. Addresses are
-# each chain's canonical, currently-live deployments (mainnet pool
-# 0x842ffbf1ad5314503904626122376f71603a3cf9, beacon impl
-# 0x4b1576Df8D8911d2F404391a7f8fAcEfA7F4b6da).
-[profile.mainnet]
-libraries = [
-    "contracts/BorrowLogic.sol:BorrowLogic:0x6749f43BB2f4d5af0ce0fc3Fc4756Dc1d44F1d73",
-    "contracts/DepositLogic.sol:DepositLogic:0xEc7716d72990374EB4E5f72f3B60179F5256d39B",
-    "contracts/LiquidityLogic.sol:LiquidityLogic:0x07e2C0C066F231E57857B7fB3CD51E18D364AAB0",
-    "contracts/tokenization/ERC20DepositTokenFactory.sol:ERC20DepositTokenFactory:0x08ccc36252f61983EE04fd5946eA958bC195090c",
-]
-
+# so per-chain linking is a named profile selected with FOUNDRY_PROFILE=sepolia,
+# e.g. `FOUNDRY_PROFILE=sepolia forge script script/FabricaLendingPoolUpgrade.s.sol`.
+# These are the live post-ENG-3231 Sepolia library deployments (see
+# LENDING-POOL-RUNBOOK.md). There is NO Fabrica mainnet deployment — the mainnet
+# lending pool (0x842Ffbf1AD5314503904626122376f71603A3Cf9) is MetaStreet's own
+# and is not Fabrica-upgradable, so no [profile.mainnet] is provided here; the
+# upstream mainnet library addresses are recorded in LENDING-POOL-RUNBOOK.md as
+# reference only, NOT as valid link targets for a Fabrica-built impl.
 [profile.sepolia]
 libraries = [
     "contracts/BorrowLogic.sol:BorrowLogic:0x97bD28cd2EC4D226969221574f7EeBE301bf7557",
@@ -57,3 +60,6 @@ libraries = [
 
 [fmt]
 line_length = 120
+# Upstream MetaStreet contracts (contracts/**) are preserved verbatim for
+# auditability against upstream; do not reformat them.
+ignore = ["contracts/**/*.sol"]

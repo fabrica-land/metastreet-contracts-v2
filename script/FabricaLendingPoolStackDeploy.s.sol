@@ -11,9 +11,7 @@ import {
     EnglishAuctionCollateralLiquidator
 } from "fabrica-lending-pools/liquidators/EnglishAuctionCollateralLiquidator.sol";
 import {SimpleSignedPriceOracle} from "fabrica-lending-pools/oracle/SimpleSignedPriceOracle.sol";
-import {
-    ERC20DepositTokenImplementation
-} from "fabrica-lending-pools/tokenization/ERC20DepositTokenImplementation.sol";
+import {ERC20DepositTokenImplementation} from "fabrica-lending-pools/tokenization/ERC20DepositTokenImplementation.sol";
 import {
     WeightedRateERC1155CollectionPool
 } from "fabrica-lending-pools/configurations/WeightedRateERC1155CollectionPool.sol";

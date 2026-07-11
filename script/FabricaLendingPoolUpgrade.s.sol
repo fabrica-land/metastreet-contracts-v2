@@ -64,7 +64,7 @@ interface IWeightedRateERC1155CollectionPoolView {
  *     --rpc-url $RPC_URL --broadcast --verify
  * If verification fails during the broadcast, follow up afterward with:
  *   forge verify-contract <new_impl_address> \
- *     src/fabrica-lending-pools/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool \
+ *     contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool \
  *     --chain <chain_id>
  */
 contract FabricaLendingPoolUpgradeScript is Script {

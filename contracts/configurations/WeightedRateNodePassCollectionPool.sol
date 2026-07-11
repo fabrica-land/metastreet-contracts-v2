@@ -33,6 +33,8 @@ contract WeightedRateNodePassCollectionPool is
      * @param yieldPassFactory Yield pass factory
      * @param erc20DepositTokenImplementation ERC20 Deposit Token implementation address
      * @param collateralWrappers Collateral wrappers
+     * @param liquidationGracePeriod_ Fabrica ENG-3113: grace period in seconds
+     * between default and when liquidate() may be called
      */
     constructor(
         address collateralLiquidator,
