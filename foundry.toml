@@ -15,10 +15,32 @@ evm_version = "cancun"
 bytecode_hash = "None"
 cbor_metadata = false
 
-# Only the ERC1155 collection pool (the configuration Fabrica deploys) is grown
-# by the ENG-31xx behavioral deltas past EIP-170's 24576-byte runtime limit at
-# high optimizer runs, so it alone compiles at runs=1 to fit. The other upstream
-# configurations keep the default runs and stay deployable at their own sizes.
+# WeightedRateERC1155CollectionPool is the ONLY configuration Fabrica deploys,
+# and the ENG-31xx behavioral deltas (depositFor, ENG-3113 grace period) grow it
+# past EIP-170's 24576-byte runtime limit at the runs=800 default, so it compiles
+# at runs=1 to fit.
+#
+# MECHANISM (ENG-3306) — runs=1 ALONE is not enough. Under viaIR, a contract's
+# runtime bytecode size is a function of its ENTIRE solc compilation unit, not
+# just its own settings: the whole-unit Yul optimizer's inlining / function-
+# hoisting decisions for the pool change with which OTHER contracts share the
+# solc job. Compiled in isolation (its own import closure only) the pool is
+# 24,851B (275 OVER). Compiled in a unit that also contains its sibling
+# ecosystem — PoolFactory, EnglishAuctionCollateralLiquidator,
+# SimpleSignedPriceOracle (and the deploy scripts / tests that co-reference them)
+# — the exact same runs=1 pool optimizes to 23,962B (614B margin). This mirrors
+# the upstream fabrica-v3-contracts "metastreet" unit (the pre-fork tree, which
+# built the identical pool at 23,628B) where the whole src/fabrica-lending-pools
+# tree compiled as ONE viaIR/runs=1 job. We reproduce that composition here by
+# pinning the pool AND its sibling ecosystem (and the pool-importing test/deploy
+# code) to runs=1 so forge co-compiles them into a single solc job.
+#
+# The size of the DEPLOYABLE pool is therefore gated by script/check-pool-size.sh
+# (asserts WeightedRateERC1155CollectionPool <= 24576), NOT by a blanket
+# `forge build --sizes` exit code: the 5 OTHER upstream configurations Fabrica
+# does not deploy remain over EIP-170 at the runs=800 default and are kept
+# byte-identical to upstream for audit fidelity (Collection -592, Merkle -1206,
+# Blast -673, NodePass -318, Set -327). See LENDING-POOL sizing notes.
 [[profile.default.additional_compiler_profiles]]
 name = "erc1155-size"
 via_ir = true
@@ -28,6 +50,33 @@ bytecode_hash = "None"
 
 [[profile.default.compilation_restrictions]]
 paths = "contracts/configurations/WeightedRateERC1155CollectionPool.sol"
+max_optimizer_runs = 1
+
+# Sibling ecosystem: co-compiling these at runs=1 with the pool is what brings
+# the pool under EIP-170 (see MECHANISM above). SimpleSignedPriceOracle is the
+# load-bearing sibling (removing it alone re-inflates the pool by ~1.3KB);
+# PoolFactory + the liquidator complete the unit that matches the origin tree.
+[[profile.default.compilation_restrictions]]
+paths = "contracts/PoolFactory.sol"
+max_optimizer_runs = 1
+
+[[profile.default.compilation_restrictions]]
+paths = "contracts/liquidators/EnglishAuctionCollateralLiquidator.sol"
+max_optimizer_runs = 1
+
+[[profile.default.compilation_restrictions]]
+paths = "contracts/oracle/SimpleSignedPriceOracle.sol"
+max_optimizer_runs = 1
+
+# The deploy scripts and tests import the pool; pinning them to runs=1 keeps them
+# in the pool's compilation unit (rather than forge spawning a separate runs=800
+# job whose composition re-inflates the deployable pool to 24,851B).
+[[profile.default.compilation_restrictions]]
+paths = "test/**"
+max_optimizer_runs = 1
+
+[[profile.default.compilation_restrictions]]
+paths = "script/**"
 max_optimizer_runs = 1
 
 # Per-chain external-library link addresses for the live Fabrica lending pool.
