@@ -41,9 +41,11 @@ interface IHardenedSimpleSignedPriceOracle {
             uint256[] memory extensions
         );
     function owner() external view returns (address);
+    function pendingOwner() external view returns (address);
 }
 
 error EnvAddressZero(string name);
+error EnvBytes32Zero(string name);
 error UnexpectedBeacon();
 error UnexpectedPool();
 error UnexpectedSafe();
@@ -54,6 +56,8 @@ error UnexpectedMultiSendCallOnly();
 error MissingMultiSendCallOnlyCode();
 error MissingNewImplementationCode();
 error MissingGuardedOracleCode();
+error UnexpectedNewImplementationCodehash();
+error UnexpectedGuardedOracleCodehash();
 error UnexpectedCurrentImplementation();
 error UnexpectedCurrentOracle();
 error NoOpBeaconUpgrade();
@@ -72,6 +76,7 @@ error BadOracleDomainName();
 error BadOracleDomainChain();
 error BadOracleDomainVerifier();
 error UnexpectedOracleOwner();
+error UnexpectedOraclePendingOwner();
 
 /**
  * @title Fabrica mainnet lending pool oracle repoint Safe packet
@@ -104,6 +109,8 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         address multiSendCallOnly = _requireEnvAddress("FABRICA_MAINNET_SAFE_MULTISEND_CALL_ONLY");
         address newImpl = _requireEnvAddress("FABRICA_MAINNET_LENDING_NEW_IMPL");
         address guardedOracle = _requireEnvAddress("FABRICA_MAINNET_GUARDED_PRICE_ORACLE");
+        bytes32 expectedNewImplCodehash = _requireEnvBytes32("FABRICA_MAINNET_LENDING_NEW_IMPL_CODEHASH");
+        bytes32 expectedGuardedOracleCodehash = _requireEnvBytes32("FABRICA_MAINNET_GUARDED_PRICE_ORACLE_CODEHASH");
         address beaconOwner = IMainnetBeacon(beacon).owner();
         address poolAdmin = IMainnetPool(pool).admin();
         address poolAdminOwner = IMainnetOwnable(poolAdmin).owner();
@@ -119,6 +126,8 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         if (multiSendCallOnly.code.length == 0) revert MissingMultiSendCallOnlyCode();
         if (newImpl.code.length == 0) revert MissingNewImplementationCode();
         if (guardedOracle.code.length == 0) revert MissingGuardedOracleCode();
+        if (newImpl.codehash != expectedNewImplCodehash) revert UnexpectedNewImplementationCodehash();
+        if (guardedOracle.codehash != expectedGuardedOracleCodehash) revert UnexpectedGuardedOracleCodehash();
         if (currentImpl != CANONICAL_MAINNET_CURRENT_IMPL) revert UnexpectedCurrentImplementation();
         if (currentOracle != CANONICAL_MAINNET_WEAK_ORACLE) revert UnexpectedCurrentOracle();
         if (newImpl == currentImpl) revert NoOpBeaconUpgrade();
@@ -175,6 +184,9 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         if (oracleDomainChainId != block.chainid) revert BadOracleDomainChain();
         if (oracleDomainVerifier != guardedOracle) revert BadOracleDomainVerifier();
         if (IHardenedSimpleSignedPriceOracle(guardedOracle).owner() != expectedSafe) revert UnexpectedOracleOwner();
+        if (IHardenedSimpleSignedPriceOracle(guardedOracle).pendingOwner() != address(0)) {
+            revert UnexpectedOraclePendingOwner();
+        }
         bytes memory upgradeCall = abi.encodeWithSelector(UPGRADE_TO_SELECTOR, newImpl);
         bytes memory repointCall = abi.encodeWithSelector(SET_PRICE_ORACLE_SELECTOR, guardedOracle);
         bytes memory multiSendTransactions =
@@ -213,6 +225,11 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
     function _requireEnvAddress(string memory name) private view returns (address addr) {
         addr = vm.envAddress(name);
         if (addr == address(0)) revert EnvAddressZero(name);
+    }
+
+    function _requireEnvBytes32(string memory name) private view returns (bytes32 value) {
+        value = vm.envBytes32(name);
+        if (value == bytes32(0)) revert EnvBytes32Zero(name);
     }
 
     function _multiSendTx(address to, bytes memory data) private pure returns (bytes memory) {

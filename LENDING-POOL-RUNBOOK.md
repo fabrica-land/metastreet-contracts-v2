@@ -155,7 +155,9 @@ export FABRICA_MAINNET_LENDING_POOL=0x221014c0b6871f3F0d57F262ae6B5b6CD2901456
 export FABRICA_MAINNET_LENDING_SAFE=0x769586A65825B028b005176F1ebbd3B82bB07Fb0
 export FABRICA_MAINNET_SAFE_MULTISEND_CALL_ONLY=0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761
 export FABRICA_MAINNET_LENDING_NEW_IMPL=<deployed WeightedRateERC1155CollectionPool 2.16 implementation>
+export FABRICA_MAINNET_LENDING_NEW_IMPL_CODEHASH=<extcodehash of deployed 2.16 implementation>
 export FABRICA_MAINNET_GUARDED_PRICE_ORACLE=<deployed hardened SimpleSignedPriceOracle>
+export FABRICA_MAINNET_GUARDED_PRICE_ORACLE_CODEHASH=<extcodehash of deployed hardened SimpleSignedPriceOracle>
 
 forge script script/FabricaLendingPoolMainnetOracleRepointPacket.s.sol:FabricaLendingPoolMainnetOracleRepointPacketScript \
   --rpc-url $MAINNET_RPC_URL
@@ -164,10 +166,12 @@ forge script script/FabricaLendingPoolMainnetOracleRepointPacket.s.sol:FabricaLe
 The script is view-only. It validates the env target addresses against the
 canonical mainnet beacon, pool, Safe, and PoolFactory/admin proxy listed above;
 then it validates beacon owner, factory owner, the canonical Safe
-MultiSendCallOnly address, nonzero code at both target addresses, the new
-implementation name/version, immutable dependency parity with the live pool,
-hardened oracle version/domain/owner, and non-no-op prestate before printing
-both individual calldata legs and the exact
+MultiSendCallOnly address, nonzero code at both target addresses, exact
+operator-supplied codehashes for the new implementation and hardened oracle,
+the new implementation name/version, immutable dependency parity with the live
+pool, hardened oracle version/domain/owner, zero pending oracle ownership
+handoff, and non-no-op prestate before printing both individual calldata legs
+and the exact
 MultiSendCallOnly `multiSend(bytes)` calldata wrapping:
 
 1. `UpgradeableBeacon.upgradeTo(newImpl)`
