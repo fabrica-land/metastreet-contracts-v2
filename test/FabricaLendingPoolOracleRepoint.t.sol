@@ -40,6 +40,17 @@ interface ILivePool {
     ) external view returns (uint256);
 }
 
+contract SafeLikeMultiSendExecutor {
+    function executeDelegatecall(address target, bytes calldata data) external {
+        (bool ok, bytes memory result) = target.delegatecall(data);
+        if (!ok) {
+            assembly {
+                revert(add(result, 0x20), mload(result))
+            }
+        }
+    }
+}
+
 contract MockERC20Metadata {
     function decimals() external pure returns (uint8) {
         return 6;
@@ -86,6 +97,7 @@ contract FabricaLendingPoolOracleRepointTest is Test {
     bytes32 internal constant PRICE_ORACLE_LOCATION =
         0x5cc3a0ef4fb602d81e01a142e768b704108e3b2e96852939d75763e011a39b00;
     address internal constant CANONICAL_FABRICA_SAFE = 0x769586A65825B028b005176F1ebbd3B82bB07Fb0;
+    address internal constant CANONICAL_SAFE_MULTISEND_CALL_ONLY = 0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761;
     address internal constant MAINNET_POOL = 0x221014c0b6871f3F0d57F262ae6B5b6CD2901456;
     address internal constant MAINNET_BEACON = 0x30E9A2082E297a2E18615224A6146f6c73F7b7A6;
     address internal constant MAINNET_WEAK_ORACLE = 0x3ed9E25AeBCd16860c4030692D47E0B116Ae04A5;
@@ -100,6 +112,10 @@ contract FabricaLendingPoolOracleRepointTest is Test {
     bytes32 internal constant MAINNET_POOL_CODEHASH =
         0x49e2841d5b438889ec5febabe744cbf0a90f8edd53739991ca021b23a1357c70;
     bytes4 internal constant INVALID_PARAMETERS_SELECTOR = bytes4(keccak256("InvalidParameters()"));
+    bytes4 internal constant MULTISEND_SELECTOR = 0x8d80ff0a;
+    bytes4 internal constant UPGRADE_TO_SELECTOR = 0x3659cfe6;
+    bytes4 internal constant SET_PRICE_ORACLE_SELECTOR = 0x530e784f;
+    bytes1 internal constant CALL_OPERATION = 0x00;
     uint64 internal constant MAINNET_LIQUIDATION_GRACE_PERIOD = 15 days;
     uint256 internal constant MAINNET_FORK_BLOCK = 25_597_121;
 
@@ -198,6 +214,7 @@ contract FabricaLendingPoolOracleRepointTest is Test {
     function test_mainnetFork_safeUpgradeAndRepointPreservesPoolState() public {
         vm.createSelectFork(vm.envString("MAINNET_RPC_URL"), MAINNET_FORK_BLOCK);
         assertGt(MAINNET_POOL.code.length, 0, "mainnet pool code required");
+        assertGt(CANONICAL_SAFE_MULTISEND_CALL_ONLY.code.length, 0, "MultiSendCallOnly code required");
         assertEq(MAINNET_POOL.codehash, MAINNET_POOL_CODEHASH, "mainnet pool proxy codehash");
         ILivePool livePool = ILivePool(MAINNET_POOL);
         ILiveUpgradeableBeacon liveBeacon = ILiveUpgradeableBeacon(MAINNET_BEACON);
@@ -212,16 +229,20 @@ contract FabricaLendingPoolOracleRepointTest is Test {
 
         WeightedRateERC1155CollectionPool newImplementation = _deployMainnetShapedImplementation();
         MockPriceOracle newOracle = new MockPriceOracle(123456789);
-        vm.prank(CANONICAL_FABRICA_SAFE);
-        liveBeacon.upgradeTo(address(newImplementation));
+        bytes memory upgradeCall = abi.encodeWithSelector(UPGRADE_TO_SELECTOR, address(newImplementation));
+        bytes memory repointCall = abi.encodeWithSelector(SET_PRICE_ORACLE_SELECTOR, address(newOracle));
+        bytes memory multiSendCall = abi.encodeWithSelector(
+            MULTISEND_SELECTOR,
+            bytes.concat(_multiSendTx(MAINNET_BEACON, upgradeCall), _multiSendTx(MAINNET_POOL, repointCall))
+        );
+
+        SafeLikeMultiSendExecutor executor = new SafeLikeMultiSendExecutor();
+        vm.etch(CANONICAL_FABRICA_SAFE, address(executor).code);
+        SafeLikeMultiSendExecutor(CANONICAL_FABRICA_SAFE)
+            .executeDelegatecall(CANONICAL_SAFE_MULTISEND_CALL_ONLY, multiSendCall);
+
         assertEq(liveBeacon.implementation(), address(newImplementation), "beacon implementation");
         assertEq(livePool.IMPLEMENTATION_VERSION(), "2.16", "version");
-        assertEq(vm.load(MAINNET_POOL, PRICE_ORACLE_LOCATION), slotBefore, "oracle slot preserved before repoint");
-        vm.prank(makeAddr("unauthorized"));
-        vm.expectRevert(WeightedRateERC1155CollectionPool.InvalidPriceOracleUpdater.selector);
-        IOracleRepoint(MAINNET_POOL).setPriceOracle(address(newOracle));
-        vm.prank(CANONICAL_FABRICA_SAFE);
-        IOracleRepoint(MAINNET_POOL).setPriceOracle(address(newOracle));
         assertEq(livePool.priceOracle(), address(newOracle), "oracle repointed");
         assertEq(
             address(uint160(uint256(vm.load(MAINNET_POOL, PRICE_ORACLE_LOCATION)))),
@@ -232,6 +253,11 @@ contract FabricaLendingPoolOracleRepointTest is Test {
         assertEq(livePool.admin(), adminBefore, "admin preserved");
         assertEq(liveBeacon.owner(), ownerBefore, "owner preserved");
         assertTrue(implementationBefore != address(0), "old implementation nonzero");
+
+        MockPriceOracle secondOracle = new MockPriceOracle(987654321);
+        vm.prank(makeAddr("unauthorized"));
+        vm.expectRevert(WeightedRateERC1155CollectionPool.InvalidPriceOracleUpdater.selector);
+        IOracleRepoint(MAINNET_POOL).setPriceOracle(address(secondOracle));
     }
 
     function _deployPoolImplementation() internal returns (address) {
@@ -289,5 +315,9 @@ contract FabricaLendingPoolOracleRepointTest is Test {
     function _assertRevertSelector(bytes memory data, bytes4 selector) internal pure {
         assertEq(data.length, 4, "revert data length");
         assertEq(bytes4(data), selector, "revert selector");
+    }
+
+    function _multiSendTx(address to, bytes memory data) internal pure returns (bytes memory) {
+        return abi.encodePacked(CALL_OPERATION, to, uint256(0), data.length, data);
     }
 }
