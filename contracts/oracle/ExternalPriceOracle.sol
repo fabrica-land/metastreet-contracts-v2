@@ -119,7 +119,11 @@ contract ExternalPriceOracle is PriceOracle {
         );
         if (ok) {
             if (data.length != 32) revert InvalidPriceOracle(newOracle);
-        } else if (data.length < 4 || bytes4(data) != PRICE_ORACLE_INVALID_LENGTH_SELECTOR) {
+        } else if (
+            // casting to bytes4 is safe because the OR short-circuit guarantees data.length >= 4 here.
+            // forge-lint: disable-next-line(unsafe-typecast)
+            data.length < 4 || bytes4(data) != PRICE_ORACLE_INVALID_LENGTH_SELECTOR
+        ) {
             revert InvalidPriceOracle(newOracle);
         }
     }

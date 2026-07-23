@@ -163,6 +163,23 @@ forge script script/FabricaLendingPoolMainnetOracleRepointPacket.s.sol:FabricaLe
   --rpc-url $MAINNET_RPC_URL
 ```
 
+The hardened oracle is the direct, non-upgradeable `SimpleSignedPriceOracle`
+deployment from ENG-3654. It is not an ERC1967 proxy. The guarded-oracle
+codehash therefore pins the deployed oracle runtime itself. If the oracle
+deployment model ever changes to a proxy, this packet script is not sufficient:
+it must be changed to validate the proxy implementation slot and implementation
+codehash before any Safe packet is emitted.
+
+The two codehash env values are reviewed deployment inputs, not free-form
+operator knobs. For the pool implementation, derive the expected codehash from
+the exact deployed `WeightedRateERC1155CollectionPool` 2.16 implementation
+address after library linking, and include the Forge artifact commit, linked
+library/broadcast metadata, deployed address, and `cast codehash <address>`
+readback in the Safe packet review. For the hardened oracle, include the
+ENG-3654 deployment artifact/readback and `cast codehash <address>` for the
+direct `SimpleSignedPriceOracle` deployment. Do not execute a Safe packet whose
+env codehashes are not backed by those reviewed artifacts.
+
 The script is view-only. It validates the env target addresses against the
 canonical mainnet beacon, pool, Safe, and PoolFactory/admin proxy listed above;
 then it validates beacon owner, factory owner, the canonical Safe
