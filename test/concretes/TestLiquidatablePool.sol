@@ -62,11 +62,7 @@ contract TestLiquidatablePool is TestPermissivePoolBase {
         _liquidateForTest(encodedLoanReceipt, encodedLoanReceipt[:0]);
     }
 
-    function liquidate(bytes calldata encodedLoanReceipt, bytes calldata liquidationOracleContext)
-        public
-        override
-        nonReentrant
-    {
+    function liquidate(bytes calldata encodedLoanReceipt, bytes calldata liquidationOracleContext) public nonReentrant {
         _liquidateForTest(encodedLoanReceipt, liquidationOracleContext);
     }
 }

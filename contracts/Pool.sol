@@ -974,10 +974,6 @@ abstract contract Pool is
      * @inheritdoc IPool
      */
     function liquidate(bytes calldata encodedLoanReceipt) external virtual nonReentrant {
-        _liquidate(encodedLoanReceipt);
-    }
-
-    function _liquidate(bytes calldata encodedLoanReceipt) internal virtual {
         /* Handle liquidate accounting */
         (LoanReceipt.LoanReceiptV2 memory loanReceipt, bytes32 loanReceiptHash) = BorrowLogic._liquidate(
             _storage,
@@ -1012,13 +1008,6 @@ abstract contract Pool is
 
         /* Emit Loan Liquidated */
         emit LoanLiquidated(loanReceiptHash);
-    }
-
-    /**
-     * @inheritdoc IPool
-     */
-    function liquidate(bytes calldata, bytes calldata) external virtual {
-        revert IPool.InvalidLiquidationReserve();
     }
 
     /**************************************************************************/

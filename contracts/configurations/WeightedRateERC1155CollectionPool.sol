@@ -170,16 +170,20 @@ contract WeightedRateERC1155CollectionPool is
      * @notice Fail closed on the legacy liquidation selector because this pool
      * requires oracle context to source an auction reserve.
      */
-    function _liquidate(bytes calldata) internal pure override {
+    function liquidate(bytes calldata) external pure override {
         revert IPool.InvalidLiquidationReserve();
     }
 
     /**
-     * @inheritdoc IPool
+     * @notice Liquidate an expired loan with oracle context used to source the auction reserve
+     *
+     * Emits a {LoanLiquidated} event.
+     *
+     * @param encodedLoanReceipt Encoded loan receipt
+     * @param liquidationOracleContext Oracle context for the reserve price quote
      */
     function liquidate(bytes calldata encodedLoanReceipt, bytes calldata liquidationOracleContext)
         external
-        override
         nonReentrant
     {
         _liquidateWithReserve(encodedLoanReceipt, liquidationOracleContext);

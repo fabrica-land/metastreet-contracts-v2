@@ -23,12 +23,20 @@ import "./concretes/TestLiquidatablePool.sol";
 
 contract StrictERC1155ReserveOracle is IPriceOracle {
     uint256 internal immutable _expectedTokenId;
+    uint256 internal immutable _expectedQuantity;
     bytes internal _borrowContext;
     bytes internal _liquidationContext;
     uint256 internal _price;
 
-    constructor(uint256 expectedTokenId, bytes memory borrowContext, bytes memory liquidationContext, uint256 price_) {
+    constructor(
+        uint256 expectedTokenId,
+        uint256 expectedQuantity,
+        bytes memory borrowContext,
+        bytes memory liquidationContext,
+        uint256 price_
+    ) {
         _expectedTokenId = expectedTokenId;
+        _expectedQuantity = expectedQuantity;
         _borrowContext = borrowContext;
         _liquidationContext = liquidationContext;
         _price = price_;
@@ -42,7 +50,7 @@ contract StrictERC1155ReserveOracle is IPriceOracle {
         bytes calldata oracleContext
     ) external view returns (uint256) {
         bool expectedCollateral = tokenIds.length == 1 && tokenIds[0] == _expectedTokenId
-            && tokenIdQuantities.length == 1 && tokenIdQuantities[0] == 1;
+            && tokenIdQuantities.length == 1 && tokenIdQuantities[0] == _expectedQuantity;
         bool expectedContext = keccak256(oracleContext) == keccak256(_borrowContext)
             || keccak256(oracleContext) == keccak256(_liquidationContext);
         return expectedCollateral && expectedContext ? _price : 0;
@@ -280,7 +288,7 @@ contract FabricaLendingPoolAuctionReserveTest is Test {
         TestERC1155 erc1155 = new TestERC1155("");
         ERC1155CollateralWrapper wrapper = new ERC1155CollateralWrapper();
         StrictERC1155ReserveOracle oracle =
-            new StrictERC1155ReserveOracle(underlyingTokenId, BORROW_CONTEXT, LIQUIDATION_CONTEXT, RESERVE);
+            new StrictERC1155ReserveOracle(underlyingTokenId, 1, BORROW_CONTEXT, LIQUIDATION_CONTEXT, RESERVE);
 
         address[] memory wrappers = new address[](1);
         wrappers[0] = address(wrapper);
@@ -360,6 +368,42 @@ contract FabricaLendingPoolAuctionReserveTest is Test {
             reserveLiquidator.auctionReservePrice(liquidationHash, address(erc1155), underlyingTokenId),
             RESERVE,
             "reserve sourced from underlying ERC1155 id"
+        );
+    }
+
+    function test_reserve_aware_liquidation_allows_single_wrapped_id_with_quantity_above_one() public {
+        TestERC1155 erc1155 = new TestERC1155("");
+        ERC1155CollateralWrapper wrapper = new ERC1155CollateralWrapper();
+        address[] memory wrappers = new address[](1);
+        wrappers[0] = address(wrapper);
+        EnglishAuctionCollateralLiquidator reserveLiquidator = _deployLiquidator(wrappers);
+
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = 77;
+        uint256[] memory quantities = new uint256[](1);
+        quantities[0] = 2;
+
+        erc1155.mint(source, 77, 2, "");
+        vm.prank(source);
+        erc1155.setApprovalForAll(address(wrapper), true);
+        uint256 nonce = wrapper.nonce();
+        vm.prank(source);
+        uint256 wrappedTokenId = wrapper.mint(address(erc1155), tokenIds, quantities);
+        bytes memory wrapperContext = abi.encode(address(erc1155), nonce, uint256(2), tokenIds, quantities);
+
+        vm.prank(source);
+        wrapper.approve(address(reserveLiquidator), wrappedTokenId);
+
+        bytes32 liquidationHash = _liquidationHash(address(wrapper), wrappedTokenId);
+        vm.prank(source);
+        reserveLiquidator.liquidateWithReserve(
+            address(currency), address(wrapper), wrappedTokenId, wrapperContext, LIQUIDATION_CONTEXT, RESERVE
+        );
+
+        assertEq(
+            reserveLiquidator.auctionReservePrice(liquidationHash, address(erc1155), 77),
+            RESERVE * 2,
+            "quantity reserve"
         );
     }
 

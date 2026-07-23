@@ -615,7 +615,7 @@ contract EnglishAuctionCollateralLiquidator is IReservePriceCollateralLiquidator
 
         if (
             reserveRequired &&
-            (underlyingCollateralTokenIds.length != 1 || underlyingQuantities.length != 1 || underlyingQuantities[0] != 1)
+            (underlyingCollateralTokenIds.length != 1 || underlyingQuantities.length != 1 || underlyingQuantities[0] == 0)
         ) revert ReserveRequired();
 
         /* Compute liquidation context hash */

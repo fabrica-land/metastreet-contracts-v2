@@ -440,20 +440,11 @@ interface IPool {
      * @notice Liquidate an expired loan
      *
      * Emits a {LoanLiquidated} event.
-     * Oracle-backed pool configurations may override this selector to fail
-     * closed and require liquidate(loanReceipt, liquidationOracleContext).
+     * Oracle-backed pool configurations may implement separate reserve-aware
+     * liquidation entrypoints.
      *
      * @param loanReceipt Loan receipt
      */
     function liquidate(bytes calldata loanReceipt) external;
 
-    /**
-     * @notice Liquidate an expired loan with oracle context used to source the auction reserve
-     *
-     * Emits a {LoanLiquidated} event.
-     *
-     * @param loanReceipt Loan receipt
-     * @param liquidationOracleContext Oracle context for the reserve price quote
-     */
-    function liquidate(bytes calldata loanReceipt, bytes calldata liquidationOracleContext) external;
 }
