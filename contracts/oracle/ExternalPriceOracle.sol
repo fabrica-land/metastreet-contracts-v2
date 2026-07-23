@@ -32,6 +32,11 @@ contract ExternalPriceOracle is PriceOracle {
      */
     bytes32 private constant PRICE_ORACLE_LOCATION = 0x5cc3a0ef4fb602d81e01a142e768b704108e3b2e96852939d75763e011a39b00;
 
+    /**
+     * @notice SimpleSignedPriceOracle.InvalidLength() selector
+     */
+    bytes4 private constant PRICE_ORACLE_INVALID_LENGTH_SELECTOR = 0x947d5a84;
+
     /**************************************************************************/
     /* Errors */
     /**************************************************************************/
@@ -114,7 +119,7 @@ contract ExternalPriceOracle is PriceOracle {
         );
         if (ok) {
             if (data.length != 32) revert InvalidPriceOracle(newOracle);
-        } else if (data.length < 4) {
+        } else if (data.length < 4 || bytes4(data) != PRICE_ORACLE_INVALID_LENGTH_SELECTOR) {
             revert InvalidPriceOracle(newOracle);
         }
     }

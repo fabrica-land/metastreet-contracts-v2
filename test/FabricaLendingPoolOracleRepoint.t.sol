@@ -68,6 +68,14 @@ contract WrongShapeOracle {
     }
 }
 
+contract RevertingFallbackOracle {
+    error NotPrice();
+
+    fallback() external {
+        revert NotPrice();
+    }
+}
+
 contract NonOwnablePoolAdmin {
     function createPool(address beacon, bytes memory params) external returns (address) {
         return address(new BeaconProxy(beacon, abi.encodeWithSignature("initialize(bytes)", params)));
@@ -89,6 +97,8 @@ contract FabricaLendingPoolOracleRepointTest is Test {
     address internal constant MAINNET_DEPOSIT_TOKEN_IMPL = 0xa8920d5dc52eEDD33570FDbAC21d02b7e8EE9634;
     address internal constant MAINNET_WRAPPER = 0x05489aC114fBaaedeE4a49B67fCc5666C951E552;
     address internal constant DUMMY_COLLATERAL_TOKEN = address(0xCA11A7E);
+    bytes32 internal constant MAINNET_POOL_CODEHASH =
+        0x49e2841d5b438889ec5febabe744cbf0a90f8edd53739991ca021b23a1357c70;
     bytes4 internal constant INVALID_PARAMETERS_SELECTOR = bytes4(keccak256("InvalidParameters()"));
     uint64 internal constant MAINNET_LIQUIDATION_GRACE_PERIOD = 15 days;
     uint256 internal constant MAINNET_FORK_BLOCK = 25_597_121;
@@ -167,6 +177,10 @@ contract FabricaLendingPoolOracleRepointTest is Test {
         vm.prank(address(factory));
         vm.expectRevert(abi.encodeWithSelector(ExternalPriceOracle.InvalidPriceOracle.selector, wrongShape));
         IOracleRepoint(pool).setPriceOracle(wrongShape);
+        address revertingFallback = address(new RevertingFallbackOracle());
+        vm.prank(address(factory));
+        vm.expectRevert(abi.encodeWithSelector(ExternalPriceOracle.InvalidPriceOracle.selector, revertingFallback));
+        IOracleRepoint(pool).setPriceOracle(revertingFallback);
         vm.prank(address(factory));
         vm.expectRevert(
             abi.encodeWithSelector(ExternalPriceOracle.PriceOracleUnchanged.selector, address(initialOracle))
@@ -184,6 +198,7 @@ contract FabricaLendingPoolOracleRepointTest is Test {
     function test_mainnetFork_safeUpgradeAndRepointPreservesPoolState() public {
         vm.createSelectFork(vm.envString("MAINNET_RPC_URL"), MAINNET_FORK_BLOCK);
         assertGt(MAINNET_POOL.code.length, 0, "mainnet pool code required");
+        assertEq(MAINNET_POOL.codehash, MAINNET_POOL_CODEHASH, "mainnet pool proxy codehash");
         ILivePool livePool = ILivePool(MAINNET_POOL);
         ILiveUpgradeableBeacon liveBeacon = ILiveUpgradeableBeacon(MAINNET_BEACON);
         bytes32 slotBefore = vm.load(MAINNET_POOL, PRICE_ORACLE_LOCATION);

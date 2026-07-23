@@ -111,6 +111,14 @@ Tim/Fede before execution. Engineers may deploy inert
 implementations and produce calldata, but must not sign, broadcast, or execute
 mainnet Safe operations.
 
+Exact-head size evidence must stay attached to the PR because this pool is at
+the EIP-170 edge. On the ENG-3686 final board head, `script/check-pool-size.sh`
+reported `WeightedRateERC1155CollectionPool runtime=24260B (EIP-170 limit
+24576B, margin 316B)`. `forge build --sizes` also compiles this target under
+the limit; its repository-wide nonzero exit is from pre-existing, unrelated
+weighted-rate variants that remain oversized and are not the ENG-3686
+implementation target.
+
 ## Upgrade Pattern
 
 Pools are deployed by `PoolFactory.createProxied(beacon, params)`, which
@@ -144,7 +152,7 @@ Generate the exact mainnet Safe calldata packet without broadcasting:
 export FABRICA_MAINNET_LENDING_BEACON=0x30E9A2082E297a2E18615224A6146f6c73F7b7A6
 export FABRICA_MAINNET_LENDING_POOL=0x221014c0b6871f3F0d57F262ae6B5b6CD2901456
 export FABRICA_MAINNET_LENDING_SAFE=0x769586A65825B028b005176F1ebbd3B82bB07Fb0
-export FABRICA_MAINNET_SAFE_MULTISEND_CALL_ONLY=<Safe MultiSendCallOnly contract>
+export FABRICA_MAINNET_SAFE_MULTISEND_CALL_ONLY=0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761
 export FABRICA_MAINNET_LENDING_NEW_IMPL=<deployed WeightedRateERC1155CollectionPool 2.16 implementation>
 export FABRICA_MAINNET_GUARDED_PRICE_ORACLE=<deployed hardened SimpleSignedPriceOracle>
 
@@ -152,23 +160,35 @@ forge script script/FabricaLendingPoolMainnetOracleRepointPacket.s.sol:FabricaLe
   --rpc-url $MAINNET_RPC_URL
 ```
 
-The script is view-only. It validates beacon owner, factory owner,
-MultiSendCallOnly code, nonzero code at both target addresses, and non-no-op
+The script is view-only. It validates beacon owner, factory owner, the
+canonical Safe MultiSendCallOnly address, nonzero code at both target
+addresses, the new implementation name/version, immutable dependency parity
+with the live pool, hardened oracle version/domain/owner, and non-no-op
 prestate before printing both individual calldata legs and the exact
 MultiSendCallOnly `multiSend(bytes)` calldata wrapping:
 
 1. `UpgradeableBeacon.upgradeTo(newImpl)`
 2. `WeightedRateERC1155CollectionPool.setPriceOracle(hardenedOracle)`
 
-Operators should execute the two calls atomically through Safe
-MultiSendCallOnly. An upgrade-only partial resting state is not corrupting:
-the pool still points at the old oracle and remains in the pre-cutover risk
-posture. It is nevertheless incomplete and must not be treated as a finished
-mainnet-liquidity control. The accepted post-batch readback is:
+Operators should execute the two calls atomically as a Safe `DELEGATECALL` to
+the canonical MultiSendCallOnly contract. A normal Safe `CALL` to
+MultiSendCallOnly is wrong: subcalls would originate from the helper contract,
+not the Safe, and owner/updater checks would fail. An upgrade-only partial
+resting state is not corrupting: the pool still points at the old oracle and
+remains in the pre-cutover risk posture. It is nevertheless incomplete and must
+not be treated as a finished mainnet-liquidity control. The accepted
+post-batch readback is:
 `beacon.implementation() == newImpl`,
 `pool.IMPLEMENTATION_VERSION() == "2.16"`, and
 `pool.priceOracle() == hardenedOracle`, with pool admin and balances/loan
 state unchanged.
+
+## Sepolia Beacon Upgrade Pattern
+
+The following sections document the historical/testnet beacon upgrade flow for
+Sepolia. They are not the ENG-3686 mainnet Safe cutover procedure. Mainnet
+execution for ENG-3686 is the Tim/Fede-reviewed Safe MultiSend packet above;
+agents must not sign, broadcast, or execute it.
 
 The upgrade is a single script (`FabricaLendingPoolUpgrade.s.sol`) that
 deploys the new implementation AND calls `beacon.upgradeTo(newImpl)` in
