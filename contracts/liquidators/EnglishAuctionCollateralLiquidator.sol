@@ -560,42 +560,26 @@ contract EnglishAuctionCollateralLiquidator is IReservePriceCollateralLiquidator
         return liquidation_.collateralToken;
     }
 
-    /**************************************************************************/
-    /* Implementation */
-    /**************************************************************************/
-
     /**
-     * @inheritdoc ICollateralLiquidator
+     * @notice Helper function to start a liquidation
+     * @param currencyToken Currency token
+     * @param collateralToken Collateral token
+     * @param collateralTokenId Collateral token ID
+     * @param collateralWrapperContext Collateral wrapper context
+     * @param liquidationContext Liquidation context
+     * @param unitReservePrice Reserve price per collateral unit
+     * @param reserveRequired True if reserve-aware liquidation is required
      */
-    function name() external pure returns (string memory) {
-        return "EnglishAuctionCollateralLiquidator";
-    }
-
-    /**
-     * @inheritdoc ICollateralLiquidator
-     */
-    function liquidate(
-        address,
-        address,
-        uint256,
-        bytes calldata,
-        bytes calldata
-    ) external pure {
-        revert ReserveRequired();
-    }
-
-    /**
-     * @inheritdoc IReservePriceCollateralLiquidator
-     */
-    function liquidateWithReserve(
+    function _liquidate(
         address currencyToken,
         address collateralToken,
         uint256 collateralTokenId,
         bytes calldata collateralWrapperContext,
         bytes calldata liquidationContext,
-        uint256 unitReservePrice
-    ) external nonReentrant {
-        if (unitReservePrice == 0) revert ReserveRequired();
+        uint256 unitReservePrice,
+        bool reserveRequired
+    ) internal {
+        if (reserveRequired && unitReservePrice == 0) revert ReserveRequired();
 
         /* Check collateral token and currency token is not zero address */
         if (collateralToken == address(0) || currencyToken == address(0)) revert InvalidToken();
@@ -628,6 +612,11 @@ contract EnglishAuctionCollateralLiquidator is IReservePriceCollateralLiquidator
             underlyingQuantities = new uint256[](1);
             underlyingQuantities[0] = 1;
         }
+
+        if (
+            reserveRequired &&
+            (underlyingCollateralTokenIds.length != 1 || underlyingQuantities.length != 1 || underlyingQuantities[0] != 1)
+        ) revert ReserveRequired();
 
         /* Compute liquidation context hash */
         bytes32 liquidationContextHash = _liquidationContextHash(liquidationContext);
@@ -670,6 +659,52 @@ contract EnglishAuctionCollateralLiquidator is IReservePriceCollateralLiquidator
         /* Unwrap if collateral token is a collateral wrapper */
         if (isCollateralWrapper)
             ICollateralWrapper(collateralToken).unwrap(collateralTokenId, collateralWrapperContext);
+    }
+
+    /**************************************************************************/
+    /* Implementation */
+    /**************************************************************************/
+
+    /**
+     * @inheritdoc ICollateralLiquidator
+     */
+    function name() external pure returns (string memory) {
+        return "EnglishAuctionCollateralLiquidator";
+    }
+
+    /**
+     * @inheritdoc ICollateralLiquidator
+     */
+    function liquidate(
+        address currencyToken,
+        address collateralToken,
+        uint256 collateralTokenId,
+        bytes calldata collateralWrapperContext,
+        bytes calldata liquidationContext
+    ) external nonReentrant {
+        _liquidate(currencyToken, collateralToken, collateralTokenId, collateralWrapperContext, liquidationContext, 0, false);
+    }
+
+    /**
+     * @inheritdoc IReservePriceCollateralLiquidator
+     */
+    function liquidateWithReserve(
+        address currencyToken,
+        address collateralToken,
+        uint256 collateralTokenId,
+        bytes calldata collateralWrapperContext,
+        bytes calldata liquidationContext,
+        uint256 unitReservePrice
+    ) external nonReentrant {
+        _liquidate(
+            currencyToken,
+            collateralToken,
+            collateralTokenId,
+            collateralWrapperContext,
+            liquidationContext,
+            unitReservePrice,
+            true
+        );
     }
 
     /**

@@ -9,11 +9,13 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "fabrica-lending-pools/Pool.sol";
 import "fabrica-lending-pools/interfaces/IPool.sol";
 import "fabrica-lending-pools/interfaces/IPriceOracle.sol";
+import "fabrica-lending-pools/configurations/WeightedRateCollectionPool.sol";
 import "fabrica-lending-pools/configurations/WeightedRateERC1155CollectionPool.sol";
 import "fabrica-lending-pools/liquidators/EnglishAuctionCollateralLiquidator.sol";
 import "fabrica-lending-pools/tokenization/ERC20DepositTokenImplementation.sol";
 import "fabrica-lending-pools/wrappers/ERC1155CollateralWrapper.sol";
 
+import "../contracts/test/TestPriceOracle.sol";
 import "../contracts/test/tokens/TestERC1155.sol";
 import "./concretes/TestERC20.sol";
 import "./concretes/TestERC721.sol";
@@ -89,7 +91,10 @@ contract FabricaLendingPoolAuctionReserveTest is Test {
     }
 
     function _deployLiquidator() internal returns (EnglishAuctionCollateralLiquidator) {
-        address[] memory wrappers = new address[](0);
+        return _deployLiquidator(new address[](0));
+    }
+
+    function _deployLiquidator(address[] memory wrappers) internal returns (EnglishAuctionCollateralLiquidator) {
         EnglishAuctionCollateralLiquidator implementation = new EnglishAuctionCollateralLiquidator(wrappers);
         bytes memory init = abi.encodeCall(
             EnglishAuctionCollateralLiquidator.initialize,
@@ -120,9 +125,19 @@ contract FabricaLendingPoolAuctionReserveTest is Test {
         currency.approve(address(liquidator), type(uint256).max);
     }
 
-    function test_liquidator_rejects_legacy_liquidate_without_reserve() public {
-        vm.expectRevert(EnglishAuctionCollateralLiquidator.ReserveRequired.selector);
+    function test_legacy_liquidator_path_starts_no_reserve_auction() public {
+        nft.mint(source, 1);
+        vm.prank(source);
+        nft.approve(address(liquidator), 1);
+
+        bytes32 liquidationHash = _liquidationHash(address(nft), 1);
+        vm.prank(source);
         liquidator.liquidate(address(currency), address(nft), 1, "", LIQUIDATION_CONTEXT);
+
+        EnglishAuctionCollateralLiquidator.Auction memory auction =
+            liquidator.auctions(liquidationHash, address(nft), 1);
+        assertEq(auction.quantity, 1, "auction quantity");
+        assertEq(liquidator.auctionReservePrice(liquidationHash, address(nft), 1), 0, "legacy reserve");
     }
 
     function test_liquidator_rejects_zero_reserve() public {
@@ -269,6 +284,7 @@ contract FabricaLendingPoolAuctionReserveTest is Test {
 
         address[] memory wrappers = new address[](1);
         wrappers[0] = address(wrapper);
+        EnglishAuctionCollateralLiquidator reserveLiquidator = _deployLiquidator(wrappers);
         address[] memory collateralTokens = new address[](1);
         collateralTokens[0] = address(erc1155);
         uint64[] memory durations = new uint64[](1);
@@ -276,7 +292,7 @@ contract FabricaLendingPoolAuctionReserveTest is Test {
         uint64[] memory rates = new uint64[](1);
         rates[0] = uint64(uint256(0.1e18) / 365 days);
         WeightedRateERC1155CollectionPool implementation = new WeightedRateERC1155CollectionPool(
-            address(liquidator), address(0), address(0), address(erc20DepositTokenImpl), wrappers, 0
+            address(reserveLiquidator), address(0), address(0), address(erc20DepositTokenImpl), wrappers, 0
         );
         WeightedRateERC1155CollectionPool weightedPool = WeightedRateERC1155CollectionPool(
             address(
@@ -341,10 +357,104 @@ contract FabricaLendingPoolAuctionReserveTest is Test {
         weightedPool.liquidate(receipt, LIQUIDATION_CONTEXT);
 
         assertEq(
-            liquidator.auctionReservePrice(liquidationHash, address(wrapper), wrappedTokenId),
+            reserveLiquidator.auctionReservePrice(liquidationHash, address(erc1155), underlyingTokenId),
             RESERVE,
             "reserve sourced from underlying ERC1155 id"
         );
+    }
+
+    function test_reserve_aware_liquidation_rejects_heterogeneous_wrapper_bundle() public {
+        TestERC1155 erc1155 = new TestERC1155("");
+        ERC1155CollateralWrapper wrapper = new ERC1155CollateralWrapper();
+        address[] memory wrappers = new address[](1);
+        wrappers[0] = address(wrapper);
+        EnglishAuctionCollateralLiquidator reserveLiquidator = _deployLiquidator(wrappers);
+
+        uint256[] memory tokenIds = new uint256[](2);
+        tokenIds[0] = 1;
+        tokenIds[1] = 2;
+        uint256[] memory quantities = new uint256[](2);
+        quantities[0] = 1;
+        quantities[1] = 1;
+
+        erc1155.mint(source, 1, 1, "");
+        erc1155.mint(source, 2, 1, "");
+        vm.prank(source);
+        erc1155.setApprovalForAll(address(wrapper), true);
+        uint256 nonce = wrapper.nonce();
+        vm.prank(source);
+        uint256 wrappedTokenId = wrapper.mint(address(erc1155), tokenIds, quantities);
+        bytes memory wrapperContext = abi.encode(address(erc1155), nonce, uint256(2), tokenIds, quantities);
+
+        vm.prank(source);
+        wrapper.approve(address(reserveLiquidator), wrappedTokenId);
+
+        vm.expectRevert(EnglishAuctionCollateralLiquidator.ReserveRequired.selector);
+        vm.prank(source);
+        reserveLiquidator.liquidateWithReserve(
+            address(currency), address(wrapper), wrappedTokenId, wrapperContext, LIQUIDATION_CONTEXT, RESERVE
+        );
+    }
+
+    function test_weighted_collection_pool_legacy_liquidation_still_works_with_english_auction() public {
+        TestPriceOracle oracle = new TestPriceOracle();
+        address[] memory wrappers = new address[](0);
+        WeightedRateCollectionPool implementation = new WeightedRateCollectionPool(
+            address(liquidator), address(0), address(0), address(erc20DepositTokenImpl), wrappers, 0
+        );
+
+        address[] memory collateralTokens = new address[](1);
+        collateralTokens[0] = address(nft);
+        uint64[] memory durations = new uint64[](1);
+        durations[0] = DURATION;
+        uint64[] memory rates = new uint64[](1);
+        rates[0] = uint64(uint256(0.1e18) / 365 days);
+        WeightedRateCollectionPool weightedPool = WeightedRateCollectionPool(
+            address(
+                new ERC1967Proxy(
+                    address(implementation),
+                    abi.encodeCall(
+                        WeightedRateCollectionPool.initialize,
+                        (abi.encode(collateralTokens, address(currency), address(oracle), durations, rates))
+                    )
+                )
+            )
+        );
+
+        currency.mint(lender, LENDER_DEPOSIT);
+        vm.prank(lender);
+        currency.approve(address(weightedPool), type(uint256).max);
+        vm.prank(lender);
+        weightedPool.deposit(TICK, LENDER_DEPOSIT, 1);
+
+        nft.mint(borrower, 99);
+        vm.prank(borrower);
+        nft.approve(address(weightedPool), 99);
+
+        vm.recordLogs();
+        vm.prank(borrower);
+        weightedPool.borrow(borrower, PRINCIPAL, DURATION, address(nft), 99, LENDER_DEPOSIT, poolTicks(), "");
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 loanTopic = keccak256("LoanOriginated(bytes32,bytes)");
+        bytes memory receipt;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].emitter == address(weightedPool) && logs[i].topics.length > 1 && logs[i].topics[0] == loanTopic)
+            {
+                receipt = abi.decode(logs[i].data, (bytes));
+                break;
+            }
+        }
+        assertGt(receipt.length, 0, "LoanOriginated event not found");
+
+        vm.warp(block.timestamp + DURATION + 1);
+        bytes32 liquidationHash = _liquidationHash(address(nft), 99);
+        weightedPool.liquidate(receipt);
+
+        EnglishAuctionCollateralLiquidator.Auction memory auction =
+            liquidator.auctions(liquidationHash, address(nft), 99);
+        assertEq(auction.quantity, 1, "legacy pool auction quantity");
+        assertEq(liquidator.auctionReservePrice(liquidationHash, address(nft), 99), 0, "legacy pool reserve");
     }
 
     function poolTicks() internal pure returns (uint128[] memory poolTicks_) {
