@@ -5,14 +5,18 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 
 import "./Pool.sol";
 import "./LoanReceipt.sol";
 import "./LiquidityLogic.sol";
+import "./wrappers/ERC1155CollateralWrapper.sol";
 
 import "./interfaces/IPool.sol";
 import "./interfaces/ICollateralWrapper.sol";
 import "./interfaces/IPriceOracle.sol";
+import "./interfaces/IReservePriceCollateralLiquidator.sol";
 import "./integrations/DelegateCash/IDelegateRegistryV1.sol";
 import "./integrations/DelegateCash/IDelegateRegistryV2.sol";
 
@@ -494,6 +498,64 @@ library BorrowLogic {
         self.loans[loanReceiptHash] = Pool.LoanStatus.Liquidated;
 
         return (loanReceipt, loanReceiptHash, unitReservePrice);
+    }
+
+    /**
+     * @dev Helper function to hand ERC1155 collateral to a reserve-aware liquidator
+     */
+    function _liquidateERC1155CollateralWithReserve(
+        Pool.PoolStorage storage self,
+        address collateralLiquidator,
+        address erc1155CollateralWrapper,
+        address collateralToken,
+        uint256 collateralTokenId,
+        bytes memory collateralWrapperContext,
+        bytes calldata encodedLoanReceipt,
+        uint256 unitReservePrice
+    ) external {
+        if (collateralToken == erc1155CollateralWrapper) {
+            IERC721(collateralToken).approve(collateralLiquidator, collateralTokenId);
+            IReservePriceCollateralLiquidator(collateralLiquidator).liquidateWithReserve(
+                address(self.currencyToken),
+                collateralToken,
+                collateralTokenId,
+                collateralWrapperContext,
+                encodedLoanReceipt,
+                unitReservePrice
+            );
+            return;
+        }
+
+        uint256[] memory collateralTokenIds = new uint256[](1);
+        collateralTokenIds[0] = collateralTokenId;
+        uint256[] memory quantities = new uint256[](1);
+        quantities[0] = 1;
+
+        IERC1155(collateralToken).setApprovalForAll(erc1155CollateralWrapper, true);
+        uint256 tokenId = ERC1155CollateralWrapper(erc1155CollateralWrapper).mint(
+            collateralToken,
+            collateralTokenIds,
+            quantities
+        );
+        IERC1155(collateralToken).setApprovalForAll(erc1155CollateralWrapper, false);
+
+        collateralWrapperContext = abi.encode(
+            collateralToken,
+            ERC1155CollateralWrapper(erc1155CollateralWrapper).nonce() - 1,
+            uint256(1),
+            collateralTokenIds,
+            quantities
+        );
+
+        IERC721(erc1155CollateralWrapper).approve(collateralLiquidator, tokenId);
+        IReservePriceCollateralLiquidator(collateralLiquidator).liquidateWithReserve(
+            address(self.currencyToken),
+            erc1155CollateralWrapper,
+            tokenId,
+            collateralWrapperContext,
+            encodedLoanReceipt,
+            unitReservePrice
+        );
     }
 
     /**

@@ -9,12 +9,10 @@ import "../BorrowLogic.sol";
 import "../LoanReceipt.sol";
 import "../Pool.sol";
 import "../interfaces/IPool.sol";
-import "../interfaces/IReservePriceCollateralLiquidator.sol";
 import "../rates/WeightedInterestRateModel.sol";
 import "../filters/CollectionCollateralFilter.sol";
 import "../tokenization/ERC20DepositToken.sol";
 import "../oracle/ExternalPriceOracle.sol";
-import "../wrappers/ERC1155CollateralWrapper.sol";
 
 /**
  * @title Pool Configuration with a Weighted Interest Rate Model, Collection
@@ -131,73 +129,6 @@ contract WeightedRateERC1155CollectionPool is
         }
     }
 
-    function _liquidateCollateralWithReserve(
-        address collateralToken,
-        uint256 collateralTokenId,
-        bytes memory collateralWrapperContext,
-        bytes calldata encodedLoanReceipt,
-        uint256 unitReservePrice
-    ) internal {
-        /* Use ERC721 collateral liquidation if already ERC1155 collateral wrapper */
-        if (collateralToken == _erc1155CollateralWrapper) {
-            /* Approve collateral for transfer to _collateralLiquidator */
-            IERC721(collateralToken).approve(address(_collateralLiquidator), collateralTokenId);
-
-            /* Start liquidation with collateral liquidator */
-            IReservePriceCollateralLiquidator(address(_collateralLiquidator)).liquidateWithReserve(
-                address(_storage.currencyToken),
-                collateralToken,
-                collateralTokenId,
-                collateralWrapperContext,
-                encodedLoanReceipt,
-                unitReservePrice
-            );
-
-            return;
-        }
-
-        /* Assign token IDs and quantities */
-        uint256[] memory collateralTokenIds = new uint256[](1);
-        collateralTokenIds[0] = collateralTokenId;
-        uint256[] memory quantities = new uint256[](1);
-        quantities[0] = 1;
-
-        /* Approve collateral for transfer to ERC1155 collateral wrapper */
-        IERC1155(collateralToken).setApprovalForAll(_erc1155CollateralWrapper, true);
-
-        /* Mint ERC1155 collateral wrapper */
-        uint256 tokenId = ERC1155CollateralWrapper(_erc1155CollateralWrapper).mint(
-            collateralToken,
-            collateralTokenIds,
-            quantities
-        );
-
-        /* Unset approval of collateral for transfer to ERC1155 collateral wrapper */
-        IERC1155(collateralToken).setApprovalForAll(_erc1155CollateralWrapper, false);
-
-        /* Synthesize collateral wrapper context */
-        collateralWrapperContext = abi.encode(
-            collateralToken,
-            ERC1155CollateralWrapper(_erc1155CollateralWrapper).nonce() - 1,
-            uint256(1),
-            collateralTokenIds,
-            quantities
-        );
-
-        /* Approve wrapped collateral for transfer to _collateralLiquidator */
-        IERC721(_erc1155CollateralWrapper).approve(address(_collateralLiquidator), tokenId);
-
-        /* Start liquidation with collateral liquidator */
-        IReservePriceCollateralLiquidator(address(_collateralLiquidator)).liquidateWithReserve(
-            address(_storage.currencyToken),
-            _erc1155CollateralWrapper,
-            tokenId,
-            collateralWrapperContext,
-            encodedLoanReceipt,
-            unitReservePrice
-        );
-    }
-
     function _liquidateWithReserve(bytes calldata encodedLoanReceipt, bytes calldata liquidationOracleContext) private {
         /* Handle liquidate accounting and source reserve price */
         (LoanReceipt.LoanReceiptV2 memory loanReceipt, bytes32 loanReceiptHash, uint256 unitReservePrice) = BorrowLogic
@@ -220,7 +151,10 @@ contract WeightedRateERC1155CollectionPool is
         );
 
         /* Liquidate collateral */
-        _liquidateCollateralWithReserve(
+        BorrowLogic._liquidateERC1155CollateralWithReserve(
+            _storage,
+            address(_collateralLiquidator),
+            _erc1155CollateralWrapper,
             loanReceipt.collateralToken,
             loanReceipt.collateralTokenId,
             loanReceipt.collateralWrapperContext,
