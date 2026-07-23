@@ -1,3 +1,10 @@
+* SimpleSignedPriceOracle v1.4 - 07/23/2026
+    * Require ERC-1271 signer contracts for quote validation.
+    * Add max quote age, max duration, reference freshness, and deviation
+      guards.
+    * Add per-token hard caps and explicit token-enable generation checks.
+    * Add fail-closed collateral market enablement and policy events.
+
 * NodePassCollectionCollateralFilter v1.0 - 02/12/2025
     * Initial release.
 

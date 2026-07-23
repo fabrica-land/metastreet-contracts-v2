@@ -39,6 +39,51 @@ under `--broadcast` will write logs to `broadcast/`.)
 > library link addresses are in `foundry.toml`'s `[profile.sepolia]` (and the
 > table above). Do NOT re-derive live link targets from the broadcast JSON.
 
+## Hardened SimpleSignedPriceOracle Policy
+
+ENG-3654 hardens `SimpleSignedPriceOracle` fail-closed. A pool is not
+borrow-ready after only `setSigner`; operators must configure all policy
+layers, then explicitly enable the collateral market.
+
+1. Configure the signer with an ERC-1271 contract, normally the custody Safe
+   or a threshold signer controlled by that Safe. EOA signer addresses are
+   rejected.
+2. Configure the collateral policy with the accepted currency token,
+   max quote age, max quote duration, and max reference age. The contract
+   enforces a hard 30 day upper bound for max reference age.
+3. Configure token policies for every live token ID: hard max price,
+   reference price, reference timestamp, and max deviation in basis points.
+4. Enable the collateral market with the exact live token ID list. Enablement
+   validates that collateral policy and every listed token policy are present
+   and fresh; empty lists and partial configuration fail closed.
+
+The deviation breaker is governance hygiene around signer drift, not an
+independent market feed. The primary independent controls are the ERC-1271
+threshold signer and per-token hard max prices. `price(...)` remains `view`,
+so quotes have no nonce; bounded-window replay is accepted only within the
+configured max quote age/duration and still remains bounded by token caps,
+reference freshness, deviation limits, and Safe-controlled signing.
+
+### Signer Rotation / Incident Response
+
+For planned rotation, the oracle owner Safe should:
+
+1. Call `setSigner(collateralToken, newSignerContract)`.
+2. Read back `priceOracleSigner(collateralToken)`.
+3. Refresh any token references that are near the 30 day SLA.
+4. Exercise `price(...)` off-chain against a newly signed under-cap quote.
+
+For signer compromise or stale policy uncertainty, disable first:
+
+```bash
+cast send <oracle> 'setCollateralEnabled(address,bool,uint256[])' \
+  <collateralToken> false '[<liveTokenIds>]' --rpc-url $RPC_URL
+```
+
+Then rotate signer and refresh policies before re-enabling. Mainnet signer
+rotation and market enablement are Safe-governed operator actions; agents
+must prepare calldata for review only and must not sign mainnet transactions.
+
 ### Mainnet
 
 No Fabrica-forked deployment yet. Production lending uses the upstream
