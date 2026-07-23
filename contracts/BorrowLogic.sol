@@ -11,6 +11,7 @@ import "./LoanReceipt.sol";
 import "./LiquidityLogic.sol";
 
 import "./interfaces/IPool.sol";
+import "./interfaces/IPriceOracle.sol";
 import "./integrations/DelegateCash/IDelegateRegistryV1.sol";
 import "./integrations/DelegateCash/IDelegateRegistryV2.sol";
 
@@ -432,6 +433,56 @@ library BorrowLogic {
         self.loans[loanReceiptHash] = Pool.LoanStatus.Liquidated;
 
         return (loanReceipt, loanReceiptHash);
+    }
+
+    /**
+     * @dev Helper function to handle liquidate accounting and source auction reserve
+     * @param self Pool storage
+     * @param encodedLoanReceipt Encoded loan receipt
+     * @param liquidationGracePeriod Grace window after maturity
+     * @param poolCollateralToken Pool collateral token used by the configured oracle signer
+     * @param liquidationOracleContext Oracle context for the reserve price quote
+     * @return Decoded loan receipt, loan receipt hash, reserve price per collateral unit
+     */
+    function _liquidateWithReserve(
+        Pool.PoolStorage storage self,
+        bytes calldata encodedLoanReceipt,
+        uint64 liquidationGracePeriod,
+        address poolCollateralToken,
+        bytes calldata liquidationOracleContext
+    ) external returns (LoanReceipt.LoanReceiptV2 memory, bytes32, uint256) {
+        /* Compute loan receipt hash */
+        bytes32 loanReceiptHash = LoanReceipt.hash(encodedLoanReceipt);
+
+        /* Validate loan status is active */
+        if (self.loans[loanReceiptHash] != Pool.LoanStatus.Active) revert IPool.InvalidLoanReceipt();
+
+        /* Decode loan receipt */
+        LoanReceipt.LoanReceiptV2 memory loanReceipt = LoanReceipt.decode(encodedLoanReceipt);
+
+        /* Validate loan is expired and outside the Fabrica grace window */
+        if (block.timestamp <= uint256(loanReceipt.maturity) + liquidationGracePeriod) revert IPool.LoanNotExpired();
+
+        uint256[] memory collateralTokenIds = new uint256[](1);
+        collateralTokenIds[0] = loanReceipt.collateralTokenId;
+
+        uint256[] memory collateralTokenQuantities = new uint256[](1);
+        collateralTokenQuantities[0] = 1;
+
+        /* Source reserve price from the pool's configured price oracle */
+        uint256 unitReservePrice = IPriceOracle(address(this)).price(
+            poolCollateralToken,
+            address(self.currencyToken),
+            collateralTokenIds,
+            collateralTokenQuantities,
+            liquidationOracleContext
+        );
+        if (unitReservePrice == 0) revert IPool.InvalidLiquidationReserve();
+
+        /* Mark loan status liquidated */
+        self.loans[loanReceiptHash] = Pool.LoanStatus.Liquidated;
+
+        return (loanReceipt, loanReceiptHash, unitReservePrice);
     }
 
     /**

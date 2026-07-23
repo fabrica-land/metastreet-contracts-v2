@@ -10,6 +10,11 @@ interface IPool {
     /**************************************************************************/
 
     /**
+     * @notice Invalid liquidation reserve
+     */
+    error InvalidLiquidationReserve();
+
+    /**
      * @notice Invalid caller
      */
     error InvalidCaller();
@@ -439,4 +444,14 @@ interface IPool {
      * @param loanReceipt Loan receipt
      */
     function liquidate(bytes calldata loanReceipt) external;
+
+    /**
+     * @notice Liquidate an expired loan with oracle context used to source the auction reserve
+     *
+     * Emits a {LoanLiquidated} event.
+     *
+     * @param loanReceipt Loan receipt
+     * @param liquidationOracleContext Oracle context for the reserve price quote
+     */
+    function liquidate(bytes calldata loanReceipt, bytes calldata liquidationOracleContext) external;
 }

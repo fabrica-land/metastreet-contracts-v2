@@ -10,7 +10,8 @@ import "fabrica-lending-pools/tokenization/ERC20DepositToken.sol";
  *
  * Stubs:
  *   - Permissive collateral filter (any token + id supported).
- *   - Trivial price oracle returning 0 (tick limits resolve to absolute values).
+ *   - Trivial positive oracle (tick limits resolve to absolute values, while
+ *     reserve-aware liquidation has a nonzero test reserve).
  *   - Trivial interest rate model: repayment = principal, adminFee = 0.
  *     This keeps the repay/liquidate math obvious in tests without compromising
  *     the access-control / time-gate surface under test.
@@ -20,8 +21,19 @@ import "fabrica-lending-pools/tokenization/ERC20DepositToken.sol";
  * Pool._transferCollateral ERC721 path for collateral.
  */
 abstract contract TestPermissivePoolBase is Pool, ERC20DepositToken {
+    uint256 internal _testOraclePrice = 1 ether;
+    bool internal _testOracleReverts;
+
     function initialize(address currencyToken_, uint64[] memory durations_, uint64[] memory rates_) external {
         Pool._initialize(currencyToken_, durations_, rates_);
+    }
+
+    function setTestOraclePrice(uint256 testOraclePrice_) external {
+        _testOraclePrice = testOraclePrice_;
+    }
+
+    function setTestOracleReverts(bool testOracleReverts_) external {
+        _testOracleReverts = testOracleReverts_;
     }
 
     function COLLATERAL_FILTER_NAME() external pure override returns (string memory) {
@@ -71,10 +83,11 @@ abstract contract TestPermissivePoolBase is Pool, ERC20DepositToken {
 
     function price(address, address, uint256[] memory, uint256[] memory, bytes calldata)
         public
-        pure
+        view
         override
         returns (uint256)
     {
-        return 0;
+        if (_testOracleReverts) revert("oracle reverted");
+        return _testOraclePrice;
     }
 }
