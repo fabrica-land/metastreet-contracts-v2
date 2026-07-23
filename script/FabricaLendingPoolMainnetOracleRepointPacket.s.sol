@@ -30,6 +30,32 @@ interface IHardenedSimpleSignedPriceOracle {
     function owner() external view returns (address);
 }
 
+error EnvAddressZero(string name);
+error UnexpectedBeacon();
+error UnexpectedPool();
+error UnexpectedSafe();
+error UnexpectedPoolAdmin();
+error UnexpectedBeaconOwner();
+error UnexpectedPoolAdminOwner();
+error UnexpectedMultiSendCallOnly();
+error MissingMultiSendCallOnlyCode();
+error MissingNewImplementationCode();
+error MissingGuardedOracleCode();
+error UnexpectedCurrentImplementation();
+error UnexpectedCurrentOracle();
+error NoOpBeaconUpgrade();
+error NoOpOracleRepoint();
+error UnexpectedImplementationName();
+error BadImplementationVersion();
+error WrapperDrift();
+error LiquidatorDrift();
+error RegistryV1Drift();
+error RegistryV2Drift();
+error GracePeriodDrift();
+error BadOracleVersion();
+error BadOracleDomain();
+error UnexpectedOracleOwner();
+
 /**
  * @title Fabrica mainnet lending pool oracle repoint Safe packet
  * @notice Dry-run only. Prints calldata for operator-reviewed Safe execution:
@@ -46,6 +72,8 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
     address private constant CANONICAL_MAINNET_LENDING_POOL = 0x221014c0b6871f3F0d57F262ae6B5b6CD2901456;
     address private constant CANONICAL_MAINNET_LENDING_SAFE = 0x769586A65825B028b005176F1ebbd3B82bB07Fb0;
     address private constant CANONICAL_MAINNET_POOL_ADMIN = 0x759991Bf617BAc3728983bF03Fb4d744C51F2A4F;
+    address private constant CANONICAL_MAINNET_CURRENT_IMPL = 0x623Ce6d9B158D007fD1E79e5a58B177aB9b51d78;
+    address private constant CANONICAL_MAINNET_WEAK_ORACLE = 0x3ed9E25AeBCd16860c4030692D47E0B116Ae04A5;
     address private constant CANONICAL_SAFE_MULTISEND_CALL_ONLY = 0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761;
 
     function setUp() public {}
@@ -62,56 +90,53 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         address poolAdminOwner = IMainnetOwnable(poolAdmin).owner();
         address currentImpl = IMainnetBeacon(beacon).implementation();
         address currentOracle = IMainnetPool(pool).priceOracle();
-        require(beacon == CANONICAL_MAINNET_LENDING_BEACON, "unexpected beacon");
-        require(pool == CANONICAL_MAINNET_LENDING_POOL, "unexpected pool");
-        require(expectedSafe == CANONICAL_MAINNET_LENDING_SAFE, "unexpected Safe");
-        require(poolAdmin == CANONICAL_MAINNET_POOL_ADMIN, "unexpected pool admin");
-        require(beaconOwner == expectedSafe, "unexpected beacon owner");
-        require(poolAdminOwner == expectedSafe, "unexpected pool admin owner");
-        require(multiSendCallOnly == CANONICAL_SAFE_MULTISEND_CALL_ONLY, "unexpected MultiSendCallOnly");
-        require(multiSendCallOnly.code.length != 0, "MultiSendCallOnly has no code");
-        require(newImpl.code.length != 0, "new impl has no code");
-        require(guardedOracle.code.length != 0, "guarded oracle has no code");
-        require(newImpl != currentImpl, "no-op beacon upgrade");
-        require(guardedOracle != currentOracle, "no-op oracle repoint");
-        require(
+        if (beacon != CANONICAL_MAINNET_LENDING_BEACON) revert UnexpectedBeacon();
+        if (pool != CANONICAL_MAINNET_LENDING_POOL) revert UnexpectedPool();
+        if (expectedSafe != CANONICAL_MAINNET_LENDING_SAFE) revert UnexpectedSafe();
+        if (poolAdmin != CANONICAL_MAINNET_POOL_ADMIN) revert UnexpectedPoolAdmin();
+        if (beaconOwner != expectedSafe) revert UnexpectedBeaconOwner();
+        if (poolAdminOwner != expectedSafe) revert UnexpectedPoolAdminOwner();
+        if (multiSendCallOnly != CANONICAL_SAFE_MULTISEND_CALL_ONLY) revert UnexpectedMultiSendCallOnly();
+        if (multiSendCallOnly.code.length == 0) revert MissingMultiSendCallOnlyCode();
+        if (newImpl.code.length == 0) revert MissingNewImplementationCode();
+        if (guardedOracle.code.length == 0) revert MissingGuardedOracleCode();
+        if (currentImpl != CANONICAL_MAINNET_CURRENT_IMPL) revert UnexpectedCurrentImplementation();
+        if (currentOracle != CANONICAL_MAINNET_WEAK_ORACLE) revert UnexpectedCurrentOracle();
+        if (newImpl == currentImpl) revert NoOpBeaconUpgrade();
+        if (guardedOracle == currentOracle) revert NoOpOracleRepoint();
+        if (
             keccak256(bytes(IMainnetPool(newImpl).IMPLEMENTATION_NAME()))
-                == keccak256(bytes("WeightedRateERC1155CollectionPool")),
-            "unexpected impl name"
-        );
-        require(
-            keccak256(bytes(IMainnetPool(newImpl).IMPLEMENTATION_VERSION())) == keccak256(bytes("2.16")),
-            "bad impl version"
-        );
-        require(
-            _sameAddressArray(IMainnetPool(newImpl).collateralWrappers(), IMainnetPool(pool).collateralWrappers()),
-            "wrapper drift"
-        );
-        require(
-            IMainnetPool(newImpl).collateralLiquidator() == IMainnetPool(pool).collateralLiquidator(),
-            "liquidator drift"
-        );
-        require(
-            IMainnetPool(newImpl).delegationRegistry() == IMainnetPool(pool).delegationRegistry(), "registry v1 drift"
-        );
-        require(
-            IMainnetPool(newImpl).delegationRegistryV2() == IMainnetPool(pool).delegationRegistryV2(),
-            "registry v2 drift"
-        );
-        require(
-            IMainnetPool(newImpl).liquidationGracePeriod() == IMainnetPool(pool).liquidationGracePeriod(), "grace drift"
-        );
-        require(
+                != keccak256(bytes("WeightedRateERC1155CollectionPool"))
+        ) revert UnexpectedImplementationName();
+        if (keccak256(bytes(IMainnetPool(newImpl).IMPLEMENTATION_VERSION())) != keccak256(bytes("2.16"))) {
+            revert BadImplementationVersion();
+        }
+        if (!_sameAddressArray(IMainnetPool(newImpl).collateralWrappers(), IMainnetPool(pool).collateralWrappers())) {
+            revert WrapperDrift();
+        }
+        if (IMainnetPool(newImpl).collateralLiquidator() != IMainnetPool(pool).collateralLiquidator()) {
+            revert LiquidatorDrift();
+        }
+        if (IMainnetPool(newImpl).delegationRegistry() != IMainnetPool(pool).delegationRegistry()) {
+            revert RegistryV1Drift();
+        }
+        if (IMainnetPool(newImpl).delegationRegistryV2() != IMainnetPool(pool).delegationRegistryV2()) {
+            revert RegistryV2Drift();
+        }
+        if (IMainnetPool(newImpl).liquidationGracePeriod() != IMainnetPool(pool).liquidationGracePeriod()) {
+            revert GracePeriodDrift();
+        }
+        if (
             keccak256(bytes(IHardenedSimpleSignedPriceOracle(guardedOracle).IMPLEMENTATION_VERSION()))
-                == keccak256(bytes("1.4")),
-            "bad oracle version"
-        );
-        require(
+                != keccak256(bytes("1.4"))
+        ) revert BadOracleVersion();
+        if (
             keccak256(bytes(IHardenedSimpleSignedPriceOracle(guardedOracle).DOMAIN_VERSION()))
-                == keccak256(bytes("1.2")),
-            "bad oracle domain"
-        );
-        require(IHardenedSimpleSignedPriceOracle(guardedOracle).owner() == expectedSafe, "unexpected oracle owner");
+                != keccak256(bytes("1.2"))
+        ) {
+            revert BadOracleDomain();
+        }
+        if (IHardenedSimpleSignedPriceOracle(guardedOracle).owner() != expectedSafe) revert UnexpectedOracleOwner();
         bytes memory upgradeCall = abi.encodeWithSelector(UPGRADE_TO_SELECTOR, newImpl);
         bytes memory repointCall = abi.encodeWithSelector(SET_PRICE_ORACLE_SELECTOR, guardedOracle);
         bytes memory multiSendTransactions =
@@ -149,7 +174,7 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
 
     function _requireEnvAddress(string memory name) private view returns (address addr) {
         addr = vm.envAddress(name);
-        require(addr != address(0), string.concat(name, " is zero"));
+        if (addr == address(0)) revert EnvAddressZero(name);
     }
 
     function _multiSendTx(address to, bytes memory data) private pure returns (bytes memory) {

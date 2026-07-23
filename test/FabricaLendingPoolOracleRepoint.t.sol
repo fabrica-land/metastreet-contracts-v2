@@ -5,10 +5,12 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {PoolFactory} from "fabrica-lending-pools/PoolFactory.sol";
 import {IPriceOracle} from "fabrica-lending-pools/interfaces/IPriceOracle.sol";
 import {ExternalPriceOracle} from "fabrica-lending-pools/oracle/ExternalPriceOracle.sol";
+import {SimpleSignedPriceOracle} from "fabrica-lending-pools/oracle/SimpleSignedPriceOracle.sol";
 import {ERC20DepositTokenImplementation} from "fabrica-lending-pools/tokenization/ERC20DepositTokenImplementation.sol";
 import {
     WeightedRateERC1155CollectionPool
@@ -48,6 +50,20 @@ contract SafeLikeMultiSendExecutor {
                 revert(add(result, 0x20), mload(result))
             }
         }
+    }
+}
+
+contract MockERC1271Signer {
+    bytes4 internal constant MAGIC_VALUE = 0x1626ba7e;
+
+    mapping(bytes32 => mapping(bytes => bool)) internal _validSignatures;
+
+    function setValidSignature(bytes32 hash, bytes memory signature, bool valid) external {
+        _validSignatures[hash][signature] = valid;
+    }
+
+    function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4) {
+        return _validSignatures[hash][signature] ? MAGIC_VALUE : bytes4(0);
     }
 }
 
@@ -116,6 +132,12 @@ contract FabricaLendingPoolOracleRepointTest is Test {
     bytes4 internal constant UPGRADE_TO_SELECTOR = 0x3659cfe6;
     bytes4 internal constant SET_PRICE_ORACLE_SELECTOR = 0x530e784f;
     bytes1 internal constant CALL_OPERATION = 0x00;
+    string internal constant ORACLE_DOMAIN_NAME = "All Fabrica Properties";
+    bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 internal constant QUOTE_TYPEHASH = keccak256(
+        "Quote(address token,uint256 tokenId,address currency,uint256 price,uint64 timestamp,uint64 duration)"
+    );
     uint64 internal constant MAINNET_LIQUIDATION_GRACE_PERIOD = 15 days;
     uint256 internal constant MAINNET_FORK_BLOCK = 25_597_121;
 
@@ -218,17 +240,20 @@ contract FabricaLendingPoolOracleRepointTest is Test {
         assertEq(MAINNET_POOL.codehash, MAINNET_POOL_CODEHASH, "mainnet pool proxy codehash");
         ILivePool livePool = ILivePool(MAINNET_POOL);
         ILiveUpgradeableBeacon liveBeacon = ILiveUpgradeableBeacon(MAINNET_BEACON);
+        bytes32 liquidityNodeBefore =
+            keccak256(_staticcallData(MAINNET_POOL, abi.encodeWithSignature("liquidityNode(uint128)", uint128(0))));
         bytes32 slotBefore = vm.load(MAINNET_POOL, PRICE_ORACLE_LOCATION);
         address implementationBefore = liveBeacon.implementation();
         address ownerBefore = liveBeacon.owner();
         address adminBefore = livePool.admin();
+        uint256 currencyBalanceBefore = IERC20(MAINNET_USDC).balanceOf(MAINNET_POOL);
         assertEq(livePool.priceOracle(), MAINNET_WEAK_ORACLE, "weak oracle prestate");
         assertEq(address(uint160(uint256(slotBefore))), MAINNET_WEAK_ORACLE, "slot prestate");
         assertEq(ownerBefore, CANONICAL_FABRICA_SAFE, "beacon owner safe");
         assertEq(adminBefore, MAINNET_FACTORY_ADMIN, "pool admin");
 
         WeightedRateERC1155CollectionPool newImplementation = _deployMainnetShapedImplementation();
-        MockPriceOracle newOracle = new MockPriceOracle(123456789);
+        (SimpleSignedPriceOracle newOracle, bytes memory quoteContext) = _deployConfiguredSimpleSignedOracle(550_000);
         bytes memory upgradeCall = abi.encodeWithSelector(UPGRADE_TO_SELECTOR, address(newImplementation));
         bytes memory repointCall = abi.encodeWithSelector(SET_PRICE_ORACLE_SELECTOR, address(newOracle));
         bytes memory multiSendCall = abi.encodeWithSelector(
@@ -249,9 +274,15 @@ contract FabricaLendingPoolOracleRepointTest is Test {
             address(newOracle),
             "slot poststate"
         );
-        assertEq(_livePoolPrice(livePool), 123456789, "pool routes through new oracle");
+        assertEq(_livePoolPrice(livePool, quoteContext), 550_000, "pool routes through hardened oracle");
         assertEq(livePool.admin(), adminBefore, "admin preserved");
         assertEq(liveBeacon.owner(), ownerBefore, "owner preserved");
+        assertEq(IERC20(MAINNET_USDC).balanceOf(MAINNET_POOL), currencyBalanceBefore, "currency balance preserved");
+        assertEq(
+            keccak256(_staticcallData(MAINNET_POOL, abi.encodeWithSignature("liquidityNode(uint128)", uint128(0)))),
+            liquidityNodeBefore,
+            "liquidity node preserved"
+        );
         assertTrue(implementationBefore != address(0), "old implementation nonzero");
 
         MockPriceOracle secondOracle = new MockPriceOracle(987654321);
@@ -290,6 +321,29 @@ contract FabricaLendingPoolOracleRepointTest is Test {
         );
     }
 
+    function _deployConfiguredSimpleSignedOracle(uint256 quotePrice)
+        internal
+        returns (SimpleSignedPriceOracle oracle, bytes memory quoteContext)
+    {
+        MockERC1271Signer signer = new MockERC1271Signer();
+        oracle = new SimpleSignedPriceOracle(ORACLE_DOMAIN_NAME);
+        oracle.setSigner(DUMMY_COLLATERAL_TOKEN, address(signer));
+        oracle.setCollateralPolicy(DUMMY_COLLATERAL_TOKEN, MAINNET_USDC, 120, 300, 30 days);
+        oracle.setTokenPolicy(DUMMY_COLLATERAL_TOKEN, 1, 1_000_000, 500_000, uint64(block.timestamp), 10_000);
+        uint256[] memory liveTokenIds = new uint256[](1);
+        liveTokenIds[0] = 1;
+        oracle.setCollateralEnabled(DUMMY_COLLATERAL_TOKEN, true, liveTokenIds);
+        SimpleSignedPriceOracle.Quote memory quote = SimpleSignedPriceOracle.Quote(
+            DUMMY_COLLATERAL_TOKEN, 1, MAINNET_USDC, quotePrice, uint64(block.timestamp), 60
+        );
+        bytes memory signature =
+            abi.encodePacked(quote.token, quote.tokenId, quote.currency, quote.price, quote.timestamp, quote.duration);
+        signer.setValidSignature(_quoteDigest(oracle, quote), signature, true);
+        SimpleSignedPriceOracle.SignedQuote[] memory quotes = new SimpleSignedPriceOracle.SignedQuote[](1);
+        quotes[0] = SimpleSignedPriceOracle.SignedQuote(quote, signature);
+        quoteContext = abi.encode(quotes);
+    }
+
     function _poolParams(address priceOracle) internal returns (bytes memory) {
         address[] memory collateralTokens = new address[](1);
         collateralTokens[0] = makeAddr("collateralToken");
@@ -301,15 +355,43 @@ contract FabricaLendingPoolOracleRepointTest is Test {
     }
 
     function _poolPrice() internal view returns (uint256) {
-        return _livePoolPrice(ILivePool(pool));
+        return _livePoolPrice(ILivePool(pool), "");
     }
 
-    function _livePoolPrice(ILivePool livePool) internal view returns (uint256) {
+    function _livePoolPrice(ILivePool livePool, bytes memory oracleContext) internal view returns (uint256) {
         uint256[] memory tokenIds = new uint256[](1);
         tokenIds[0] = 1;
         uint256[] memory quantities = new uint256[](1);
         quantities[0] = 1;
-        return livePool.price(DUMMY_COLLATERAL_TOKEN, MAINNET_USDC, tokenIds, quantities, "");
+        return livePool.price(DUMMY_COLLATERAL_TOKEN, MAINNET_USDC, tokenIds, quantities, oracleContext);
+    }
+
+    function _quoteDigest(SimpleSignedPriceOracle oracle, SimpleSignedPriceOracle.Quote memory quote)
+        internal
+        view
+        returns (bytes32)
+    {
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                EIP712_DOMAIN_TYPEHASH,
+                keccak256(bytes(ORACLE_DOMAIN_NAME)),
+                keccak256(bytes(oracle.DOMAIN_VERSION())),
+                block.chainid,
+                address(oracle)
+            )
+        );
+        bytes32 structHash = keccak256(
+            abi.encode(
+                QUOTE_TYPEHASH, quote.token, quote.tokenId, quote.currency, quote.price, quote.timestamp, quote.duration
+            )
+        );
+        return keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+    }
+
+    function _staticcallData(address target, bytes memory data) internal view returns (bytes memory result) {
+        bool ok;
+        (ok, result) = target.staticcall(data);
+        assertTrue(ok, "staticcall readback");
     }
 
     function _assertRevertSelector(bytes memory data, bytes4 selector) internal pure {
