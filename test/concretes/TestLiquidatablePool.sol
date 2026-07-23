@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.25;
 
+import "fabrica-lending-pools/BorrowLogic.sol";
+import "fabrica-lending-pools/LoanReceipt.sol";
+import "fabrica-lending-pools/interfaces/IReservePriceCollateralLiquidator.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+
 import "./TestPermissivePoolBase.sol";
 
 /**
@@ -19,5 +24,45 @@ contract TestLiquidatablePool is TestPermissivePoolBase {
 
     function IMPLEMENTATION_NAME() external pure override returns (string memory) {
         return "TestLiquidatablePool";
+    }
+
+    function _liquidateForTest(bytes calldata encodedLoanReceipt, bytes calldata liquidationOracleContext) private {
+        (LoanReceipt.LoanReceiptV2 memory loanReceipt, bytes32 loanReceiptHash, uint256 unitReservePrice) = BorrowLogic._liquidateWithReserve(
+            _storage,
+            encodedLoanReceipt,
+            _liquidationGracePeriod,
+            collateralToken(),
+            address(0),
+            liquidationOracleContext
+        );
+
+        BorrowLogic._revokeDelegates(
+            _getDelegateStorage(),
+            loanReceipt.collateralToken,
+            loanReceipt.collateralTokenId,
+            _delegateRegistryV1,
+            _delegateRegistryV2
+        );
+
+        IERC721(loanReceipt.collateralToken).approve(address(_collateralLiquidator), loanReceipt.collateralTokenId);
+        IReservePriceCollateralLiquidator(address(_collateralLiquidator))
+            .liquidateWithReserve(
+                address(_storage.currencyToken),
+                loanReceipt.collateralToken,
+                loanReceipt.collateralTokenId,
+                loanReceipt.collateralWrapperContext,
+                encodedLoanReceipt,
+                unitReservePrice
+            );
+
+        emit LoanLiquidated(loanReceiptHash);
+    }
+
+    function liquidate(bytes calldata encodedLoanReceipt) public override nonReentrant {
+        _liquidateForTest(encodedLoanReceipt, encodedLoanReceipt[:0]);
+    }
+
+    function liquidate(bytes calldata encodedLoanReceipt, bytes calldata liquidationOracleContext) public nonReentrant {
+        _liquidateForTest(encodedLoanReceipt, liquidationOracleContext);
     }
 }

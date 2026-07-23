@@ -549,7 +549,7 @@ abstract contract Pool is
      * @notice Get reference to ERC-7201 delegate storage
      * @return $ Reference to delegate storage
      */
-    function _getDelegateStorage() private pure returns (DelegateStorage storage $) {
+    function _getDelegateStorage() internal pure returns (DelegateStorage storage $) {
         assembly {
             $.slot := DELEGATE_STORAGE_LOCATION
         }
@@ -973,7 +973,7 @@ abstract contract Pool is
     /**
      * @inheritdoc IPool
      */
-    function liquidate(bytes calldata encodedLoanReceipt) external nonReentrant {
+    function liquidate(bytes calldata encodedLoanReceipt) external virtual nonReentrant {
         /* Handle liquidate accounting */
         (LoanReceipt.LoanReceiptV2 memory loanReceipt, bytes32 loanReceiptHash) = BorrowLogic._liquidate(
             _storage,

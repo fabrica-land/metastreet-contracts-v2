@@ -5,12 +5,14 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
 
+import "../BorrowLogic.sol";
+import "../LoanReceipt.sol";
 import "../Pool.sol";
+import "../interfaces/IPool.sol";
 import "../rates/WeightedInterestRateModel.sol";
 import "../filters/CollectionCollateralFilter.sol";
 import "../tokenization/ERC20DepositToken.sol";
 import "../oracle/ExternalPriceOracle.sol";
-import "../wrappers/ERC1155CollateralWrapper.sol";
 
 /**
  * @title Pool Configuration with a Weighted Interest Rate Model, Collection
@@ -127,66 +129,64 @@ contract WeightedRateERC1155CollectionPool is
         }
     }
 
-    /**
-     * @inheritdoc Pool
-     */
-    function _liquidateCollateral(
-        address collateralToken,
-        uint256 collateralTokenId,
-        bytes memory collateralWrapperContext,
-        bytes calldata encodedLoanReceipt
-    ) internal override {
-        /* Use ERC721 collateral liquidation if already ERC1155 collateral wrapper */
-        if (collateralToken == _erc1155CollateralWrapper) {
-            super._liquidateCollateral(
-                collateralToken,
-                collateralTokenId,
-                collateralWrapperContext,
-                encodedLoanReceipt
-            );
-
-            return;
-        }
-
-        /* Assign token IDs and quantities */
-        uint256[] memory collateralTokenIds = new uint256[](1);
-        collateralTokenIds[0] = collateralTokenId;
-        uint256[] memory quantities = new uint256[](1);
-        quantities[0] = 1;
-
-        /* Approve collateral for transfer to ERC1155 collateral wrapper */
-        IERC1155(collateralToken).setApprovalForAll(_erc1155CollateralWrapper, true);
-
-        /* Mint ERC1155 collateral wrapper */
-        uint256 tokenId = ERC1155CollateralWrapper(_erc1155CollateralWrapper).mint(
-            collateralToken,
-            collateralTokenIds,
-            quantities
-        );
-
-        /* Unset approval of collateral for transfer to ERC1155 collateral wrapper */
-        IERC1155(collateralToken).setApprovalForAll(_erc1155CollateralWrapper, false);
-
-        /* Synthesize collateral wrapper context */
-        collateralWrapperContext = abi.encode(
-            collateralToken,
-            ERC1155CollateralWrapper(_erc1155CollateralWrapper).nonce() - 1,
-            uint256(1),
-            collateralTokenIds,
-            quantities
-        );
-
-        /* Approve wrapped collateral for transfer to _collateralLiquidator */
-        IERC721(_erc1155CollateralWrapper).approve(address(_collateralLiquidator), tokenId);
-
-        /* Start liquidation with collateral liquidator */
-        _collateralLiquidator.liquidate(
-            address(_storage.currencyToken),
+    function _liquidateWithReserve(bytes calldata encodedLoanReceipt, bytes calldata liquidationOracleContext) private {
+        /* Handle liquidate accounting and source reserve price */
+        (LoanReceipt.LoanReceiptV2 memory loanReceipt, bytes32 loanReceiptHash, uint256 unitReservePrice) = BorrowLogic
+            ._liquidateWithReserve(
+            _storage,
+            encodedLoanReceipt,
+            _liquidationGracePeriod,
+            collateralToken(),
             _erc1155CollateralWrapper,
-            tokenId,
-            collateralWrapperContext,
-            encodedLoanReceipt
+            liquidationOracleContext
         );
+
+        /* Revoke delegates */
+        BorrowLogic._revokeDelegates(
+            _getDelegateStorage(),
+            loanReceipt.collateralToken,
+            loanReceipt.collateralTokenId,
+            _delegateRegistryV1,
+            _delegateRegistryV2
+        );
+
+        /* Liquidate collateral */
+        BorrowLogic._liquidateERC1155CollateralWithReserve(
+            _storage,
+            address(_collateralLiquidator),
+            _erc1155CollateralWrapper,
+            loanReceipt.collateralToken,
+            loanReceipt.collateralTokenId,
+            loanReceipt.collateralWrapperContext,
+            encodedLoanReceipt,
+            unitReservePrice
+        );
+
+        /* Emit Loan Liquidated */
+        emit LoanLiquidated(loanReceiptHash);
+    }
+
+    /**
+     * @notice Fail closed on the legacy liquidation selector because this pool
+     * requires oracle context to source an auction reserve.
+     */
+    function liquidate(bytes calldata) external pure override {
+        revert IPool.InvalidLiquidationReserve();
+    }
+
+    /**
+     * @notice Liquidate an expired loan with oracle context used to source the auction reserve
+     *
+     * Emits a {LoanLiquidated} event.
+     *
+     * @param encodedLoanReceipt Encoded loan receipt
+     * @param liquidationOracleContext Oracle context for the reserve price quote
+     */
+    function liquidate(bytes calldata encodedLoanReceipt, bytes calldata liquidationOracleContext)
+        external
+        nonReentrant
+    {
+        _liquidateWithReserve(encodedLoanReceipt, liquidationOracleContext);
     }
 
     /**************************************************************************/

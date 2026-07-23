@@ -10,6 +10,11 @@ interface IPool {
     /**************************************************************************/
 
     /**
+     * @notice Invalid liquidation reserve
+     */
+    error InvalidLiquidationReserve();
+
+    /**
      * @notice Invalid caller
      */
     error InvalidCaller();
@@ -435,8 +440,11 @@ interface IPool {
      * @notice Liquidate an expired loan
      *
      * Emits a {LoanLiquidated} event.
+     * Oracle-backed pool configurations may implement separate reserve-aware
+     * liquidation entrypoints.
      *
      * @param loanReceipt Loan receipt
      */
     function liquidate(bytes calldata loanReceipt) external;
+
 }

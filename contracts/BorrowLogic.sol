@@ -5,12 +5,18 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 
 import "./Pool.sol";
 import "./LoanReceipt.sol";
 import "./LiquidityLogic.sol";
+import "./wrappers/ERC1155CollateralWrapper.sol";
 
 import "./interfaces/IPool.sol";
+import "./interfaces/ICollateralWrapper.sol";
+import "./interfaces/IPriceOracle.sol";
+import "./interfaces/IReservePriceCollateralLiquidator.sol";
 import "./integrations/DelegateCash/IDelegateRegistryV1.sol";
 import "./integrations/DelegateCash/IDelegateRegistryV2.sol";
 
@@ -432,6 +438,124 @@ library BorrowLogic {
         self.loans[loanReceiptHash] = Pool.LoanStatus.Liquidated;
 
         return (loanReceipt, loanReceiptHash);
+    }
+
+    /**
+     * @dev Helper function to handle liquidate accounting and source auction reserve
+     * @param self Pool storage
+     * @param encodedLoanReceipt Encoded loan receipt
+     * @param liquidationGracePeriod Grace window after maturity
+     * @param poolCollateralToken Pool collateral token used by the configured oracle signer
+     * @param poolCollateralWrapper Pool collateral wrapper used to enumerate underlying collateral, if any
+     * @param liquidationOracleContext Oracle context for the reserve price quote
+     * @return Decoded loan receipt, loan receipt hash, reserve price per collateral unit
+     */
+    function _liquidateWithReserve(
+        Pool.PoolStorage storage self,
+        bytes calldata encodedLoanReceipt,
+        uint64 liquidationGracePeriod,
+        address poolCollateralToken,
+        address poolCollateralWrapper,
+        bytes calldata liquidationOracleContext
+    ) external returns (LoanReceipt.LoanReceiptV2 memory, bytes32, uint256) {
+        /* Compute loan receipt hash */
+        bytes32 loanReceiptHash = LoanReceipt.hash(encodedLoanReceipt);
+
+        /* Validate loan status is active */
+        if (self.loans[loanReceiptHash] != Pool.LoanStatus.Active) revert IPool.InvalidLoanReceipt();
+
+        /* Decode loan receipt */
+        LoanReceipt.LoanReceiptV2 memory loanReceipt = LoanReceipt.decode(encodedLoanReceipt);
+
+        /* Validate loan is expired and outside the Fabrica grace window */
+        if (block.timestamp <= uint256(loanReceipt.maturity) + liquidationGracePeriod) revert IPool.LoanNotExpired();
+
+        uint256[] memory collateralTokenIds;
+        uint256[] memory collateralTokenQuantities;
+        if (loanReceipt.collateralToken == poolCollateralWrapper) {
+            address underlyingCollateralToken;
+            (underlyingCollateralToken, collateralTokenIds, collateralTokenQuantities) = ICollateralWrapper(poolCollateralWrapper)
+                .enumerateWithQuantities(loanReceipt.collateralTokenId, loanReceipt.collateralWrapperContext);
+            if (underlyingCollateralToken == address(0)) revert IPool.InvalidLiquidationReserve();
+        } else {
+            collateralTokenIds = new uint256[](1);
+            collateralTokenIds[0] = loanReceipt.collateralTokenId;
+            collateralTokenQuantities = new uint256[](1);
+            collateralTokenQuantities[0] = 1;
+        }
+
+        /* Source reserve price from the pool's configured price oracle */
+        uint256 unitReservePrice = IPriceOracle(address(this)).price(
+            poolCollateralToken,
+            address(self.currencyToken),
+            collateralTokenIds,
+            collateralTokenQuantities,
+            liquidationOracleContext
+        );
+        if (unitReservePrice == 0) revert IPool.InvalidLiquidationReserve();
+
+        /* Mark loan status liquidated */
+        self.loans[loanReceiptHash] = Pool.LoanStatus.Liquidated;
+
+        return (loanReceipt, loanReceiptHash, unitReservePrice);
+    }
+
+    /**
+     * @dev Helper function to hand ERC1155 collateral to a reserve-aware liquidator
+     */
+    function _liquidateERC1155CollateralWithReserve(
+        Pool.PoolStorage storage self,
+        address collateralLiquidator,
+        address erc1155CollateralWrapper,
+        address collateralToken,
+        uint256 collateralTokenId,
+        bytes memory collateralWrapperContext,
+        bytes calldata encodedLoanReceipt,
+        uint256 unitReservePrice
+    ) external {
+        if (collateralToken == erc1155CollateralWrapper) {
+            IERC721(collateralToken).approve(collateralLiquidator, collateralTokenId);
+            IReservePriceCollateralLiquidator(collateralLiquidator).liquidateWithReserve(
+                address(self.currencyToken),
+                collateralToken,
+                collateralTokenId,
+                collateralWrapperContext,
+                encodedLoanReceipt,
+                unitReservePrice
+            );
+            return;
+        }
+
+        uint256[] memory collateralTokenIds = new uint256[](1);
+        collateralTokenIds[0] = collateralTokenId;
+        uint256[] memory quantities = new uint256[](1);
+        quantities[0] = 1;
+
+        IERC1155(collateralToken).setApprovalForAll(erc1155CollateralWrapper, true);
+        uint256 tokenId = ERC1155CollateralWrapper(erc1155CollateralWrapper).mint(
+            collateralToken,
+            collateralTokenIds,
+            quantities
+        );
+        IERC1155(collateralToken).setApprovalForAll(erc1155CollateralWrapper, false);
+
+        collateralWrapperContext = abi.encode(
+            collateralToken,
+            ERC1155CollateralWrapper(erc1155CollateralWrapper).nonce() - 1,
+            uint256(1),
+            collateralTokenIds,
+            quantities
+        );
+
+        IERC721(erc1155CollateralWrapper).approve(collateralLiquidator, tokenId);
+        IReservePriceCollateralLiquidator(collateralLiquidator).liquidateWithReserve(
+            address(self.currencyToken),
+            erc1155CollateralWrapper,
+            tokenId,
+            collateralWrapperContext,
+            encodedLoanReceipt,
+            unitReservePrice
+        );
     }
 
     /**

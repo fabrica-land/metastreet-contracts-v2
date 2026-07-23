@@ -12,13 +12,14 @@ import "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
 
 import "../interfaces/ICollateralLiquidationReceiver.sol";
 import "../interfaces/ICollateralLiquidator.sol";
+import "../interfaces/IReservePriceCollateralLiquidator.sol";
 import "../interfaces/ICollateralWrapper.sol";
 
 /**
  * @title English Auction Collateral Liquidator
  * @author MetaStreet Labs
  */
-contract EnglishAuctionCollateralLiquidator is ICollateralLiquidator, ReentrancyGuard, ERC1155Holder {
+contract EnglishAuctionCollateralLiquidator is IReservePriceCollateralLiquidator, ReentrancyGuard, ERC1155Holder {
     using SafeERC20 for IERC20;
 
     /**************************************************************************/
@@ -73,6 +74,18 @@ contract EnglishAuctionCollateralLiquidator is ICollateralLiquidator, Reentrancy
      * @notice Invalid collateral claim
      */
     error InvalidClaim();
+
+    /**
+     * @notice Reserve price required
+     */
+    error ReserveRequired();
+
+    /**
+     * @notice Bid is below reserve price
+     * @param amount Bid amount
+     * @param reservePrice Reserve price
+     */
+    error BidBelowReserve(uint256 amount, uint256 reservePrice);
 
     /**************************************************************************/
     /* Structures */
@@ -146,6 +159,20 @@ contract EnglishAuctionCollateralLiquidator is ICollateralLiquidator, Reentrancy
         address indexed collateralToken,
         uint256 indexed collateralTokenId,
         uint256 quantity
+    );
+
+    /**
+     * @notice Emitted when an auction reserve is set
+     * @param liquidationHash Liquidation hash
+     * @param collateralToken Collateral token
+     * @param collateralTokenId Collateral token ID
+     * @param reservePrice Reserve price
+     */
+    event AuctionReserveSet(
+        bytes32 indexed liquidationHash,
+        address indexed collateralToken,
+        uint256 indexed collateralTokenId,
+        uint256 reservePrice
     );
 
     /**
@@ -262,6 +289,11 @@ contract EnglishAuctionCollateralLiquidator is ICollateralLiquidator, Reentrancy
      * @dev Liquidation tracker
      */
     mapping(bytes32 => Liquidation) private _liquidations;
+
+    /**
+     * @dev Collateral auction reserve prices
+     */
+    mapping(bytes32 => mapping(address => mapping(uint256 => uint256))) private _auctionReservePrices;
 
     /**************************************************************************/
     /* Constructor */
@@ -385,6 +417,21 @@ contract EnglishAuctionCollateralLiquidator is ICollateralLiquidator, Reentrancy
         return _auctions[liquidationHash][collateralToken][collateralTokenId];
     }
 
+    /**
+     * @notice Get auction reserve price
+     * @param liquidationHash Liquidation hash
+     * @param collateralToken Collateral token
+     * @param collateralTokenId Collateral token ID
+     * @return Reserve price
+     */
+    function auctionReservePrice(
+        bytes32 liquidationHash,
+        address collateralToken,
+        uint256 collateralTokenId
+    ) external view returns (uint256) {
+        return _auctionReservePrices[liquidationHash][collateralToken][collateralTokenId];
+    }
+
     /**************************************************************************/
     /* Helper Functions */
     /**************************************************************************/
@@ -428,12 +475,14 @@ contract EnglishAuctionCollateralLiquidator is ICollateralLiquidator, Reentrancy
      * @param collateralToken Collateral token
      * @param collateralTokenId Collateral token ID
      * @param quantity Quantity
+     * @param reservePrice Reserve price
      */
     function _createAuction(
         bytes32 liquidationHash,
         address collateralToken,
         uint256 collateralTokenId,
-        uint256 quantity
+        uint256 quantity,
+        uint256 reservePrice
     ) internal {
         /* Create collateral auction */
         _auctions[liquidationHash][collateralToken][collateralTokenId] = Auction({
@@ -443,8 +492,14 @@ contract EnglishAuctionCollateralLiquidator is ICollateralLiquidator, Reentrancy
             highestBid: 0
         });
 
+        /* Store auction reserve price */
+        _auctionReservePrices[liquidationHash][collateralToken][collateralTokenId] = reservePrice;
+
         /* Emit AuctionCreated */
         emit AuctionCreated(liquidationHash, collateralToken, collateralTokenId, quantity);
+
+        /* Emit AuctionReserveSet */
+        emit AuctionReserveSet(liquidationHash, collateralToken, collateralTokenId, reservePrice);
     }
 
     /**
@@ -505,27 +560,27 @@ contract EnglishAuctionCollateralLiquidator is ICollateralLiquidator, Reentrancy
         return liquidation_.collateralToken;
     }
 
-    /**************************************************************************/
-    /* Implementation */
-    /**************************************************************************/
-
     /**
-     * @inheritdoc ICollateralLiquidator
+     * @notice Helper function to start a liquidation
+     * @param currencyToken Currency token
+     * @param collateralToken Collateral token
+     * @param collateralTokenId Collateral token ID
+     * @param collateralWrapperContext Collateral wrapper context
+     * @param liquidationContext Liquidation context
+     * @param unitReservePrice Reserve price per collateral unit
+     * @param reserveRequired True if reserve-aware liquidation is required
      */
-    function name() external pure returns (string memory) {
-        return "EnglishAuctionCollateralLiquidator";
-    }
-
-    /**
-     * @inheritdoc ICollateralLiquidator
-     */
-    function liquidate(
+    function _liquidate(
         address currencyToken,
         address collateralToken,
         uint256 collateralTokenId,
         bytes calldata collateralWrapperContext,
-        bytes calldata liquidationContext
-    ) external nonReentrant {
+        bytes calldata liquidationContext,
+        uint256 unitReservePrice,
+        bool reserveRequired
+    ) internal {
+        if (reserveRequired && unitReservePrice == 0) revert ReserveRequired();
+
         /* Check collateral token and currency token is not zero address */
         if (collateralToken == address(0) || currencyToken == address(0)) revert InvalidToken();
 
@@ -558,6 +613,11 @@ contract EnglishAuctionCollateralLiquidator is ICollateralLiquidator, Reentrancy
             underlyingQuantities[0] = 1;
         }
 
+        if (
+            reserveRequired &&
+            (underlyingCollateralTokenIds.length != 1 || underlyingQuantities.length != 1 || underlyingQuantities[0] == 0)
+        ) revert ReserveRequired();
+
         /* Compute liquidation context hash */
         bytes32 liquidationContextHash = _liquidationContextHash(liquidationContext);
 
@@ -578,7 +638,8 @@ contract EnglishAuctionCollateralLiquidator is ICollateralLiquidator, Reentrancy
                 liquidationHash,
                 underlyingCollateralToken,
                 underlyingCollateralTokenIds[i],
-                underlyingQuantities[i]
+                underlyingQuantities[i],
+                unitReservePrice * underlyingQuantities[i]
             );
         }
 
@@ -598,6 +659,52 @@ contract EnglishAuctionCollateralLiquidator is ICollateralLiquidator, Reentrancy
         /* Unwrap if collateral token is a collateral wrapper */
         if (isCollateralWrapper)
             ICollateralWrapper(collateralToken).unwrap(collateralTokenId, collateralWrapperContext);
+    }
+
+    /**************************************************************************/
+    /* Implementation */
+    /**************************************************************************/
+
+    /**
+     * @inheritdoc ICollateralLiquidator
+     */
+    function name() external pure returns (string memory) {
+        return "EnglishAuctionCollateralLiquidator";
+    }
+
+    /**
+     * @inheritdoc ICollateralLiquidator
+     */
+    function liquidate(
+        address currencyToken,
+        address collateralToken,
+        uint256 collateralTokenId,
+        bytes calldata collateralWrapperContext,
+        bytes calldata liquidationContext
+    ) external nonReentrant {
+        _liquidate(currencyToken, collateralToken, collateralTokenId, collateralWrapperContext, liquidationContext, 0, false);
+    }
+
+    /**
+     * @inheritdoc IReservePriceCollateralLiquidator
+     */
+    function liquidateWithReserve(
+        address currencyToken,
+        address collateralToken,
+        uint256 collateralTokenId,
+        bytes calldata collateralWrapperContext,
+        bytes calldata liquidationContext,
+        uint256 unitReservePrice
+    ) external nonReentrant {
+        _liquidate(
+            currencyToken,
+            collateralToken,
+            collateralTokenId,
+            collateralWrapperContext,
+            liquidationContext,
+            unitReservePrice,
+            true
+        );
     }
 
     /**
@@ -630,6 +737,10 @@ contract EnglishAuctionCollateralLiquidator is ICollateralLiquidator, Reentrancy
 
         /* Validate auction has not ended */
         if (auction_.endTime != 0 && auction_.endTime < uint64(block.timestamp)) revert InvalidBid();
+
+        /* Validate bid amount meets reserve price */
+        uint256 reservePrice = _auctionReservePrices[liquidationHash][collateralToken][collateralTokenId];
+        if (amount < reservePrice) revert BidBelowReserve(amount, reservePrice);
 
         /* Validate bid amount is bigger than the minimum bid amount */
         if (
@@ -705,11 +816,18 @@ contract EnglishAuctionCollateralLiquidator is ICollateralLiquidator, Reentrancy
         /* Validate that auction has ended */
         if (uint64(block.timestamp) <= auction_.endTime) revert InvalidClaim();
 
-        /* Process liquidation proceeds */
-        address wrappedCollateralToken = _processLiquidation(auction_, liquidationHash, liquidationContext);
+        /* Validate winning bid meets reserve price */
+        uint256 reservePrice = _auctionReservePrices[liquidationHash][collateralToken][collateralTokenId];
+        if (auction_.highestBid < reservePrice) revert InvalidClaim();
 
         /* Delete auction */
         delete _auctions[liquidationHash][collateralToken][collateralTokenId];
+
+        /* Delete auction reserve price */
+        delete _auctionReservePrices[liquidationHash][collateralToken][collateralTokenId];
+
+        /* Process liquidation proceeds */
+        address wrappedCollateralToken = _processLiquidation(auction_, liquidationHash, liquidationContext);
 
         /* Transfer collateral from contract to auction winner */
         if (_isCollateralWrapper(wrappedCollateralToken)) {
