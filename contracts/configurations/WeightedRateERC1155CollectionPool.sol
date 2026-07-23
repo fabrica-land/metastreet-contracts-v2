@@ -28,8 +28,27 @@ contract WeightedRateERC1155CollectionPool is
     ExternalPriceOracle
 {
     /**************************************************************************/
+    /* Errors */
+    /**************************************************************************/
+
+    /**
+     * @notice Invalid price oracle updater
+     */
+    error InvalidPriceOracleUpdater();
+
+    /**************************************************************************/
     /* Immutable State */
     /**************************************************************************/
+
+    /**
+     * @notice setPriceOracle(address) selector
+     */
+    bytes4 private constant SET_PRICE_ORACLE_SELECTOR = 0x530e784f;
+
+    /**
+     * @notice owner() selector
+     */
+    bytes4 private constant OWNER_SELECTOR = 0x8da5cb5b;
 
     /**
      * @notice ERC1155 Collateral Wrapper address
@@ -198,6 +217,27 @@ contract WeightedRateERC1155CollectionPool is
      */
     function IMPLEMENTATION_NAME() external pure override returns (string memory) {
         return "WeightedRateERC1155CollectionPool";
+    }
+
+    /**************************************************************************/
+    /* Fallback */
+    /**************************************************************************/
+
+    /**
+     * @notice Size-constrained dispatcher for setPriceOracle(address)
+     * @dev The pool is close to EIP-170. The fallback accepts only the
+     *      setPriceOracle(address) selector with canonical 36-byte calldata;
+     *      every other selector or empty calldata reverts InvalidParameters().
+     */
+    fallback() external {
+        if (msg.sig != SET_PRICE_ORACLE_SELECTOR || msg.data.length != 36) revert InvalidParameters();
+        if (msg.sender != _storage.admin) {
+            (bool ok, bytes memory data) = _storage.admin.staticcall(abi.encodeWithSelector(OWNER_SELECTOR));
+            if (!ok || data.length != 32 || abi.decode(data, (address)) != msg.sender) {
+                revert InvalidPriceOracleUpdater();
+            }
+        }
+        ExternalPriceOracle._setPriceOracle(abi.decode(msg.data[4:], (address)));
     }
 
     /**************************************************************************/

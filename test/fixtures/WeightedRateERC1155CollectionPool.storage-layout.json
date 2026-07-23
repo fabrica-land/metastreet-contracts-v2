@@ -1,0 +1,489 @@
+{
+  "storage": [
+    {
+      "astId": 10725,
+      "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+      "label": "_status",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_uint256"
+    },
+    {
+      "astId": 4731,
+      "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+      "label": "_storage",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_struct(PoolStorage)4727_storage"
+    },
+    {
+      "astId": 7557,
+      "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+      "label": "_token",
+      "offset": 0,
+      "slot": "9",
+      "type": "t_address"
+    },
+    {
+      "astId": 7561,
+      "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+      "label": "_aliases",
+      "offset": 0,
+      "slot": "10",
+      "type": "t_struct(AddressSet)16259_storage"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_array(t_bytes32)dyn_storage": {
+      "encoding": "dynamic_array",
+      "label": "bytes32[]",
+      "numberOfBytes": "32",
+      "base": "t_bytes32"
+    },
+    "t_array(t_uint64)dyn_storage": {
+      "encoding": "dynamic_array",
+      "label": "uint64[]",
+      "numberOfBytes": "32",
+      "base": "t_uint64"
+    },
+    "t_bytes32": {
+      "encoding": "inplace",
+      "label": "bytes32",
+      "numberOfBytes": "32"
+    },
+    "t_contract(IERC20)11105": {
+      "encoding": "inplace",
+      "label": "contract IERC20",
+      "numberOfBytes": "20"
+    },
+    "t_enum(LoanStatus)4654": {
+      "encoding": "inplace",
+      "label": "enum Pool.LoanStatus",
+      "numberOfBytes": "1"
+    },
+    "t_mapping(t_address,t_mapping(t_uint128,t_struct(Deposit)4625_storage))": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => mapping(uint128 => struct Pool.Deposit))",
+      "numberOfBytes": "32",
+      "value": "t_mapping(t_uint128,t_struct(Deposit)4625_storage)"
+    },
+    "t_mapping(t_bytes32,t_enum(LoanStatus)4654)": {
+      "encoding": "mapping",
+      "key": "t_bytes32",
+      "label": "mapping(bytes32 => enum Pool.LoanStatus)",
+      "numberOfBytes": "32",
+      "value": "t_enum(LoanStatus)4654"
+    },
+    "t_mapping(t_bytes32,t_uint256)": {
+      "encoding": "mapping",
+      "key": "t_bytes32",
+      "label": "mapping(bytes32 => uint256)",
+      "numberOfBytes": "32",
+      "value": "t_uint256"
+    },
+    "t_mapping(t_uint128,t_struct(Deposit)4625_storage)": {
+      "encoding": "mapping",
+      "key": "t_uint128",
+      "label": "mapping(uint128 => struct Pool.Deposit)",
+      "numberOfBytes": "32",
+      "value": "t_struct(Deposit)4625_storage"
+    },
+    "t_mapping(t_uint128,t_struct(FulfilledRedemption)2392_storage)": {
+      "encoding": "mapping",
+      "key": "t_uint128",
+      "label": "mapping(uint128 => struct LiquidityLogic.FulfilledRedemption)",
+      "numberOfBytes": "32",
+      "value": "t_struct(FulfilledRedemption)2392_storage"
+    },
+    "t_mapping(t_uint128,t_struct(Redemption)4614_storage)": {
+      "encoding": "mapping",
+      "key": "t_uint128",
+      "label": "mapping(uint128 => struct Pool.Redemption)",
+      "numberOfBytes": "32",
+      "value": "t_struct(Redemption)4614_storage"
+    },
+    "t_mapping(t_uint256,t_struct(Node)2431_storage)": {
+      "encoding": "mapping",
+      "key": "t_uint256",
+      "label": "mapping(uint256 => struct LiquidityLogic.Node)",
+      "numberOfBytes": "32",
+      "value": "t_struct(Node)2431_storage"
+    },
+    "t_struct(Accrual)2411_storage": {
+      "encoding": "inplace",
+      "label": "struct LiquidityLogic.Accrual",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "astId": 2406,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "accrued",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 2408,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "rate",
+          "offset": 16,
+          "slot": "0",
+          "type": "t_uint64"
+        },
+        {
+          "astId": 2410,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "timestamp",
+          "offset": 24,
+          "slot": "0",
+          "type": "t_uint64"
+        }
+      ]
+    },
+    "t_struct(AddressSet)16259_storage": {
+      "encoding": "inplace",
+      "label": "struct EnumerableSet.AddressSet",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "astId": 16258,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "_inner",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_struct(Set)15944_storage"
+        }
+      ]
+    },
+    "t_struct(Deposit)4625_storage": {
+      "encoding": "inplace",
+      "label": "struct Pool.Deposit",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "astId": 4617,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "shares",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 4619,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "redemptionId",
+          "offset": 16,
+          "slot": "0",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 4624,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "redemptions",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_mapping(t_uint128,t_struct(Redemption)4614_storage)"
+        }
+      ]
+    },
+    "t_struct(FulfilledRedemption)2392_storage": {
+      "encoding": "inplace",
+      "label": "struct LiquidityLogic.FulfilledRedemption",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "astId": 2389,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "shares",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 2391,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "amount",
+          "offset": 16,
+          "slot": "0",
+          "type": "t_uint128"
+        }
+      ]
+    },
+    "t_struct(Liquidity)2438_storage": {
+      "encoding": "inplace",
+      "label": "struct LiquidityLogic.Liquidity",
+      "numberOfBytes": "32",
+      "members": [
+        {
+          "astId": 2437,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "nodes",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_mapping(t_uint256,t_struct(Node)2431_storage)"
+        }
+      ]
+    },
+    "t_struct(Node)2431_storage": {
+      "encoding": "inplace",
+      "label": "struct LiquidityLogic.Node",
+      "numberOfBytes": "192",
+      "members": [
+        {
+          "astId": 2414,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "value",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 2416,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "shares",
+          "offset": 16,
+          "slot": "0",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 2418,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "available",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 2420,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "pending",
+          "offset": 16,
+          "slot": "1",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 2422,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "prev",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 2424,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "next",
+          "offset": 16,
+          "slot": "2",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 2427,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "redemptions",
+          "offset": 0,
+          "slot": "3",
+          "type": "t_struct(Redemptions)2403_storage"
+        },
+        {
+          "astId": 2430,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "accrual",
+          "offset": 0,
+          "slot": "5",
+          "type": "t_struct(Accrual)2411_storage"
+        }
+      ]
+    },
+    "t_struct(PoolStorage)4727_storage": {
+      "encoding": "inplace",
+      "label": "struct Pool.PoolStorage",
+      "numberOfBytes": "256",
+      "members": [
+        {
+          "astId": 4699,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "currencyToken",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_contract(IERC20)11105"
+        },
+        {
+          "astId": 4701,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "adminFeeRate",
+          "offset": 20,
+          "slot": "0",
+          "type": "t_uint32"
+        },
+        {
+          "astId": 4704,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "durations",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_array(t_uint64)dyn_storage"
+        },
+        {
+          "astId": 4707,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "rates",
+          "offset": 0,
+          "slot": "2",
+          "type": "t_array(t_uint64)dyn_storage"
+        },
+        {
+          "astId": 4709,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "admin",
+          "offset": 0,
+          "slot": "3",
+          "type": "t_address"
+        },
+        {
+          "astId": 4711,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "adminFeeBalance",
+          "offset": 0,
+          "slot": "4",
+          "type": "t_uint256"
+        },
+        {
+          "astId": 4714,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "liquidity",
+          "offset": 0,
+          "slot": "5",
+          "type": "t_struct(Liquidity)2438_storage"
+        },
+        {
+          "astId": 4721,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "deposits",
+          "offset": 0,
+          "slot": "6",
+          "type": "t_mapping(t_address,t_mapping(t_uint128,t_struct(Deposit)4625_storage))"
+        },
+        {
+          "astId": 4726,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "loans",
+          "offset": 0,
+          "slot": "7",
+          "type": "t_mapping(t_bytes32,t_enum(LoanStatus)4654)"
+        }
+      ]
+    },
+    "t_struct(Redemption)4614_storage": {
+      "encoding": "inplace",
+      "label": "struct Pool.Redemption",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "astId": 4609,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "pending",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 4611,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "index",
+          "offset": 16,
+          "slot": "0",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 4613,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "target",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_uint128"
+        }
+      ]
+    },
+    "t_struct(Redemptions)2403_storage": {
+      "encoding": "inplace",
+      "label": "struct LiquidityLogic.Redemptions",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "astId": 2395,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "pending",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 2397,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "index",
+          "offset": 16,
+          "slot": "0",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 2402,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "fulfilled",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_mapping(t_uint128,t_struct(FulfilledRedemption)2392_storage)"
+        }
+      ]
+    },
+    "t_struct(Set)15944_storage": {
+      "encoding": "inplace",
+      "label": "struct EnumerableSet.Set",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "astId": 15939,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "_values",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_array(t_bytes32)dyn_storage"
+        },
+        {
+          "astId": 15943,
+          "contract": "contracts/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool",
+          "label": "_indexes",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_mapping(t_bytes32,t_uint256)"
+        }
+      ]
+    },
+    "t_uint128": {
+      "encoding": "inplace",
+      "label": "uint128",
+      "numberOfBytes": "16"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    },
+    "t_uint32": {
+      "encoding": "inplace",
+      "label": "uint32",
+      "numberOfBytes": "4"
+    },
+    "t_uint64": {
+      "encoding": "inplace",
+      "label": "uint64",
+      "numberOfBytes": "8"
+    }
+  }
+}

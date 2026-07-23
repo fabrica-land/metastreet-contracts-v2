@@ -32,6 +32,39 @@ contract ExternalPriceOracle is PriceOracle {
      */
     bytes32 private constant PRICE_ORACLE_LOCATION = 0x5cc3a0ef4fb602d81e01a142e768b704108e3b2e96852939d75763e011a39b00;
 
+    /**
+     * @notice SimpleSignedPriceOracle.InvalidLength() selector
+     */
+    bytes4 private constant PRICE_ORACLE_INVALID_LENGTH_SELECTOR = 0x947d5a84;
+
+    /**************************************************************************/
+    /* Errors */
+    /**************************************************************************/
+
+    /**
+     * @notice Invalid price oracle
+     * @param priceOracle Price oracle address
+     */
+    error InvalidPriceOracle(address priceOracle);
+
+    /**
+     * @notice Price oracle unchanged
+     * @param priceOracle Price oracle address
+     */
+    error PriceOracleUnchanged(address priceOracle);
+
+    /**************************************************************************/
+    /* Events */
+    /**************************************************************************/
+
+    /**
+     * @notice Emitted when the external price oracle is updated
+     * @param previousOracle Previous price oracle address
+     * @param newOracle New price oracle address
+     * @param caller Caller that updated the oracle
+     */
+    event PriceOracleUpdated(address indexed previousOracle, address indexed newOracle, address indexed caller);
+
     /**************************************************************************/
     /* Initializer */
     /**************************************************************************/
@@ -55,6 +88,43 @@ contract ExternalPriceOracle is PriceOracle {
     function _getPriceOracleStorage() private pure returns (PriceOracleStorage storage $) {
         assembly {
             $.slot := PRICE_ORACLE_LOCATION
+        }
+    }
+
+    /**
+     * @notice Set the external price oracle address
+     * @param newOracle New price oracle address
+     */
+    function _setPriceOracle(address newOracle) internal {
+        if (newOracle == address(0) || newOracle.code.length == 0) revert InvalidPriceOracle(newOracle);
+        _validatePriceOracleShape(newOracle);
+        PriceOracleStorage storage $ = _getPriceOracleStorage();
+        address previousOracle = $.addr;
+        if (newOracle == previousOracle) revert PriceOracleUnchanged(newOracle);
+        $.addr = newOracle;
+        emit PriceOracleUpdated(previousOracle, newOracle, msg.sender);
+    }
+
+    /**
+     * @notice Validate that the candidate oracle exposes the expected price() API shape
+     * @param newOracle New price oracle address
+     */
+    function _validatePriceOracleShape(address newOracle) private view {
+        uint256[] memory emptyTokenIds = new uint256[](0);
+        (bool ok, bytes memory data) = newOracle.staticcall(
+            abi.encodeCall(
+                IPriceOracle.price,
+                (address(1), address(1), emptyTokenIds, emptyTokenIds, abi.encode(emptyTokenIds))
+            )
+        );
+        if (ok) {
+            if (data.length != 32) revert InvalidPriceOracle(newOracle);
+        } else if (
+            // casting to bytes4 is safe because the OR short-circuit guarantees data.length >= 4 here.
+            // forge-lint: disable-next-line(unsafe-typecast)
+            data.length < 4 || bytes4(data) != PRICE_ORACLE_INVALID_LENGTH_SELECTOR
+        ) {
+            revert InvalidPriceOracle(newOracle);
         }
     }
 
