@@ -7,7 +7,7 @@ import "fabrica-lending-pools/interfaces/IReservePriceCollateralLiquidator.sol";
  * @title No-op collateral liquidator for grace-period tests (Fabrica ENG-3113).
  *
  * Pool.liquidate() approves this contract for the collateral and then calls
- * liquidate(). The grace-period guard under test lives entirely in
+ * liquidateWithReserve(). The grace-period guard under test lives entirely in
  * Pool.liquidate() before this hand-off, so the liquidator itself need only
  * accept the call without reverting — it does not need to run an auction.
  * Collateral is left escrowed in the pool (approved to this mock); the tests

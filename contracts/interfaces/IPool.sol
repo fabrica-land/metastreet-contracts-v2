@@ -440,6 +440,8 @@ interface IPool {
      * @notice Liquidate an expired loan
      *
      * Emits a {LoanLiquidated} event.
+     * Oracle-backed pool configurations may override this selector to fail
+     * closed and require liquidate(loanReceipt, liquidationOracleContext).
      *
      * @param loanReceipt Loan receipt
      */

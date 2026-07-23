@@ -418,7 +418,7 @@ contract EnglishAuctionCollateralLiquidator is IReservePriceCollateralLiquidator
     }
 
     /**
-     * Get auction reserve price
+     * @notice Get auction reserve price
      * @param liquidationHash Liquidation hash
      * @param collateralToken Collateral token
      * @param collateralTokenId Collateral token ID

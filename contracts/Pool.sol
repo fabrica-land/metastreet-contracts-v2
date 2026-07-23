@@ -973,14 +973,51 @@ abstract contract Pool is
     /**
      * @inheritdoc IPool
      */
-    function liquidate(bytes calldata) public virtual {
-        revert IPool.InvalidLiquidationReserve();
+    function liquidate(bytes calldata encodedLoanReceipt) external virtual nonReentrant {
+        _liquidate(encodedLoanReceipt);
+    }
+
+    function _liquidate(bytes calldata encodedLoanReceipt) internal virtual {
+        /* Handle liquidate accounting */
+        (LoanReceipt.LoanReceiptV2 memory loanReceipt, bytes32 loanReceiptHash) = BorrowLogic._liquidate(
+            _storage,
+            encodedLoanReceipt
+        );
+
+        /* Fabrica ENG-3113: enforce the constructor-parameterized grace window.
+           Liquidation is permitted only once block.timestamp passes the loan's
+           maturity plus the pool's grace period. maturity (uint64) + grace
+           (uint64) is widened to uint256 to compare against block.timestamp and
+           to avoid any uint64 overflow. */
+        if (block.timestamp <= uint256(loanReceipt.maturity) + _liquidationGracePeriod) {
+            revert IPool.LoanNotExpired();
+        }
+
+        /* Revoke delegates */
+        BorrowLogic._revokeDelegates(
+            _getDelegateStorage(),
+            loanReceipt.collateralToken,
+            loanReceipt.collateralTokenId,
+            _delegateRegistryV1,
+            _delegateRegistryV2
+        );
+
+        /* Liquidate collateral */
+        _liquidateCollateral(
+            loanReceipt.collateralToken,
+            loanReceipt.collateralTokenId,
+            loanReceipt.collateralWrapperContext,
+            encodedLoanReceipt
+        );
+
+        /* Emit Loan Liquidated */
+        emit LoanLiquidated(loanReceiptHash);
     }
 
     /**
      * @inheritdoc IPool
      */
-    function liquidate(bytes calldata, bytes calldata) public virtual {
+    function liquidate(bytes calldata, bytes calldata) external virtual {
         revert IPool.InvalidLiquidationReserve();
     }
 

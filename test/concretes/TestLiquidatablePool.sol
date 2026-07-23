@@ -28,7 +28,12 @@ contract TestLiquidatablePool is TestPermissivePoolBase {
 
     function _liquidateForTest(bytes calldata encodedLoanReceipt, bytes calldata liquidationOracleContext) private {
         (LoanReceipt.LoanReceiptV2 memory loanReceipt, bytes32 loanReceiptHash, uint256 unitReservePrice) = BorrowLogic._liquidateWithReserve(
-            _storage, encodedLoanReceipt, _liquidationGracePeriod, collateralToken(), liquidationOracleContext
+            _storage,
+            encodedLoanReceipt,
+            _liquidationGracePeriod,
+            collateralToken(),
+            address(0),
+            liquidationOracleContext
         );
 
         BorrowLogic._revokeDelegates(

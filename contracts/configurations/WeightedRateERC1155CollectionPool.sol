@@ -206,6 +206,7 @@ contract WeightedRateERC1155CollectionPool is
             encodedLoanReceipt,
             _liquidationGracePeriod,
             collateralToken(),
+            _erc1155CollateralWrapper,
             liquidationOracleContext
         );
 
@@ -232,10 +233,18 @@ contract WeightedRateERC1155CollectionPool is
     }
 
     /**
+     * @notice Fail closed on the legacy liquidation selector because this pool
+     * requires oracle context to source an auction reserve.
+     */
+    function _liquidate(bytes calldata) internal pure override {
+        revert IPool.InvalidLiquidationReserve();
+    }
+
+    /**
      * @inheritdoc IPool
      */
     function liquidate(bytes calldata encodedLoanReceipt, bytes calldata liquidationOracleContext)
-        public
+        external
         override
         nonReentrant
     {

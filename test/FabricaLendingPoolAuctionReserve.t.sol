@@ -8,12 +8,44 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import "fabrica-lending-pools/Pool.sol";
 import "fabrica-lending-pools/interfaces/IPool.sol";
+import "fabrica-lending-pools/interfaces/IPriceOracle.sol";
+import "fabrica-lending-pools/configurations/WeightedRateERC1155CollectionPool.sol";
 import "fabrica-lending-pools/liquidators/EnglishAuctionCollateralLiquidator.sol";
 import "fabrica-lending-pools/tokenization/ERC20DepositTokenImplementation.sol";
+import "fabrica-lending-pools/wrappers/ERC1155CollateralWrapper.sol";
 
+import "../contracts/test/tokens/TestERC1155.sol";
 import "./concretes/TestERC20.sol";
 import "./concretes/TestERC721.sol";
 import "./concretes/TestLiquidatablePool.sol";
+
+contract StrictERC1155ReserveOracle is IPriceOracle {
+    uint256 internal immutable _expectedTokenId;
+    bytes internal _borrowContext;
+    bytes internal _liquidationContext;
+    uint256 internal _price;
+
+    constructor(uint256 expectedTokenId, bytes memory borrowContext, bytes memory liquidationContext, uint256 price_) {
+        _expectedTokenId = expectedTokenId;
+        _borrowContext = borrowContext;
+        _liquidationContext = liquidationContext;
+        _price = price_;
+    }
+
+    function price(
+        address,
+        address,
+        uint256[] memory tokenIds,
+        uint256[] memory tokenIdQuantities,
+        bytes calldata oracleContext
+    ) external view returns (uint256) {
+        bool expectedCollateral = tokenIds.length == 1 && tokenIds[0] == _expectedTokenId
+            && tokenIdQuantities.length == 1 && tokenIdQuantities[0] == 1;
+        bool expectedContext = keccak256(oracleContext) == keccak256(_borrowContext)
+            || keccak256(oracleContext) == keccak256(_liquidationContext);
+        return expectedCollateral && expectedContext ? _price : 0;
+    }
+}
 
 /**
  * ENG-3655 reserve-price coverage for the English auction liquidator and the
@@ -43,6 +75,7 @@ contract FabricaLendingPoolAuctionReserveTest is Test {
     uint64 internal constant TIME_EXTENSION = 30 minutes;
     uint64 internal constant MINIMUM_BID_BASIS_POINTS = 500;
     bytes internal constant LIQUIDATION_CONTEXT = hex"3655";
+    bytes internal constant BORROW_CONTEXT = hex"b0770a";
 
     event LoanOriginated(bytes32 indexed loanReceiptHash, bytes loanReceipt);
 
@@ -221,5 +254,101 @@ contract FabricaLendingPoolAuctionReserveTest is Test {
         assertEq(uint256(pool.loans(loanReceiptHash)), uint256(Pool.LoanStatus.Liquidated), "loan liquidated");
         assertEq(nft.ownerOf(12), address(liquidator), "liquidator escrows collateral");
         assertEq(liquidator.auctionReservePrice(liquidationHash, address(nft), 12), RESERVE, "reserve set");
+    }
+
+    function _borrowOption(Pool.BorrowOptions tag, bytes memory data) internal pure returns (bytes memory) {
+        return abi.encodePacked(uint16(uint256(tag)), uint16(data.length), data);
+    }
+
+    function test_weighted_erc1155_liquidation_prices_underlying_collateral_for_wrapped_loan() public {
+        uint256 underlyingTokenId = 3655;
+        TestERC1155 erc1155 = new TestERC1155("");
+        ERC1155CollateralWrapper wrapper = new ERC1155CollateralWrapper();
+        StrictERC1155ReserveOracle oracle =
+            new StrictERC1155ReserveOracle(underlyingTokenId, BORROW_CONTEXT, LIQUIDATION_CONTEXT, RESERVE);
+
+        address[] memory wrappers = new address[](1);
+        wrappers[0] = address(wrapper);
+        address[] memory collateralTokens = new address[](1);
+        collateralTokens[0] = address(erc1155);
+        uint64[] memory durations = new uint64[](1);
+        durations[0] = DURATION;
+        uint64[] memory rates = new uint64[](1);
+        rates[0] = uint64(uint256(0.1e18) / 365 days);
+        WeightedRateERC1155CollectionPool implementation = new WeightedRateERC1155CollectionPool(
+            address(liquidator), address(0), address(0), address(erc20DepositTokenImpl), wrappers, 0
+        );
+        WeightedRateERC1155CollectionPool weightedPool = WeightedRateERC1155CollectionPool(
+            address(
+                new ERC1967Proxy(
+                    address(implementation),
+                    abi.encodeCall(
+                        WeightedRateERC1155CollectionPool.initialize,
+                        (abi.encode(collateralTokens, address(currency), address(oracle), durations, rates))
+                    )
+                )
+            )
+        );
+
+        currency.mint(lender, LENDER_DEPOSIT);
+        vm.prank(lender);
+        currency.approve(address(weightedPool), type(uint256).max);
+        vm.prank(lender);
+        weightedPool.deposit(TICK, LENDER_DEPOSIT, 1);
+
+        erc1155.mint(borrower, underlyingTokenId, 1, "");
+        vm.prank(borrower);
+        erc1155.setApprovalForAll(address(wrapper), true);
+
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = underlyingTokenId;
+        uint256[] memory quantities = new uint256[](1);
+        quantities[0] = 1;
+        uint256 nonce = wrapper.nonce();
+
+        vm.prank(borrower);
+        uint256 wrappedTokenId = wrapper.mint(address(erc1155), tokenIds, quantities);
+
+        bytes memory wrapperContext = abi.encode(address(erc1155), nonce, uint256(1), tokenIds, quantities);
+        bytes memory options = bytes.concat(
+            _borrowOption(Pool.BorrowOptions.CollateralWrapperContext, wrapperContext),
+            _borrowOption(Pool.BorrowOptions.OracleContext, BORROW_CONTEXT)
+        );
+
+        vm.prank(borrower);
+        wrapper.approve(address(weightedPool), wrappedTokenId);
+
+        vm.recordLogs();
+        vm.prank(borrower);
+        weightedPool.borrow(
+            borrower, PRINCIPAL, DURATION, address(wrapper), wrappedTokenId, LENDER_DEPOSIT, poolTicks(), options
+        );
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 loanTopic = keccak256("LoanOriginated(bytes32,bytes)");
+        bytes memory receipt;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].emitter == address(weightedPool) && logs[i].topics.length > 1 && logs[i].topics[0] == loanTopic)
+            {
+                receipt = abi.decode(logs[i].data, (bytes));
+                break;
+            }
+        }
+        assertGt(receipt.length, 0, "LoanOriginated event not found");
+
+        vm.warp(block.timestamp + DURATION + 1);
+        bytes32 liquidationHash = _liquidationHash(address(wrapper), wrappedTokenId);
+        weightedPool.liquidate(receipt, LIQUIDATION_CONTEXT);
+
+        assertEq(
+            liquidator.auctionReservePrice(liquidationHash, address(wrapper), wrappedTokenId),
+            RESERVE,
+            "reserve sourced from underlying ERC1155 id"
+        );
+    }
+
+    function poolTicks() internal pure returns (uint128[] memory poolTicks_) {
+        poolTicks_ = new uint128[](1);
+        poolTicks_[0] = TICK;
     }
 }

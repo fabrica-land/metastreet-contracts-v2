@@ -11,6 +11,7 @@ import "./LoanReceipt.sol";
 import "./LiquidityLogic.sol";
 
 import "./interfaces/IPool.sol";
+import "./interfaces/ICollateralWrapper.sol";
 import "./interfaces/IPriceOracle.sol";
 import "./integrations/DelegateCash/IDelegateRegistryV1.sol";
 import "./integrations/DelegateCash/IDelegateRegistryV2.sol";
@@ -441,6 +442,7 @@ library BorrowLogic {
      * @param encodedLoanReceipt Encoded loan receipt
      * @param liquidationGracePeriod Grace window after maturity
      * @param poolCollateralToken Pool collateral token used by the configured oracle signer
+     * @param poolCollateralWrapper Pool collateral wrapper used to enumerate underlying collateral, if any
      * @param liquidationOracleContext Oracle context for the reserve price quote
      * @return Decoded loan receipt, loan receipt hash, reserve price per collateral unit
      */
@@ -449,6 +451,7 @@ library BorrowLogic {
         bytes calldata encodedLoanReceipt,
         uint64 liquidationGracePeriod,
         address poolCollateralToken,
+        address poolCollateralWrapper,
         bytes calldata liquidationOracleContext
     ) external returns (LoanReceipt.LoanReceiptV2 memory, bytes32, uint256) {
         /* Compute loan receipt hash */
@@ -463,11 +466,19 @@ library BorrowLogic {
         /* Validate loan is expired and outside the Fabrica grace window */
         if (block.timestamp <= uint256(loanReceipt.maturity) + liquidationGracePeriod) revert IPool.LoanNotExpired();
 
-        uint256[] memory collateralTokenIds = new uint256[](1);
-        collateralTokenIds[0] = loanReceipt.collateralTokenId;
-
-        uint256[] memory collateralTokenQuantities = new uint256[](1);
-        collateralTokenQuantities[0] = 1;
+        uint256[] memory collateralTokenIds;
+        uint256[] memory collateralTokenQuantities;
+        if (loanReceipt.collateralToken == poolCollateralWrapper) {
+            address underlyingCollateralToken;
+            (underlyingCollateralToken, collateralTokenIds, collateralTokenQuantities) = ICollateralWrapper(poolCollateralWrapper)
+                .enumerateWithQuantities(loanReceipt.collateralTokenId, loanReceipt.collateralWrapperContext);
+            if (underlyingCollateralToken != poolCollateralToken) revert IPool.InvalidLiquidationReserve();
+        } else {
+            collateralTokenIds = new uint256[](1);
+            collateralTokenIds[0] = loanReceipt.collateralTokenId;
+            collateralTokenQuantities = new uint256[](1);
+            collateralTokenQuantities[0] = 1;
+        }
 
         /* Source reserve price from the pool's configured price oracle */
         uint256 unitReservePrice = IPriceOracle(address(this)).price(
