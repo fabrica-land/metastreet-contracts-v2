@@ -92,11 +92,31 @@ contract ExternalPriceOracle is PriceOracle {
      */
     function _setPriceOracle(address newOracle) internal {
         if (newOracle == address(0) || newOracle.code.length == 0) revert InvalidPriceOracle(newOracle);
+        _validatePriceOracleShape(newOracle);
         PriceOracleStorage storage $ = _getPriceOracleStorage();
         address previousOracle = $.addr;
         if (newOracle == previousOracle) revert PriceOracleUnchanged(newOracle);
         $.addr = newOracle;
         emit PriceOracleUpdated(previousOracle, newOracle, msg.sender);
+    }
+
+    /**
+     * @notice Validate that the candidate oracle exposes the expected price() API shape
+     * @param newOracle New price oracle address
+     */
+    function _validatePriceOracleShape(address newOracle) internal view {
+        uint256[] memory emptyTokenIds = new uint256[](0);
+        (bool ok, bytes memory data) = newOracle.staticcall(
+            abi.encodeCall(
+                IPriceOracle.price,
+                (address(1), address(1), emptyTokenIds, emptyTokenIds, abi.encode(emptyTokenIds))
+            )
+        );
+        if (ok) {
+            if (data.length != 32) revert InvalidPriceOracle(newOracle);
+        } else if (data.length < 4) {
+            revert InvalidPriceOracle(newOracle);
+        }
     }
 
     /**************************************************************************/

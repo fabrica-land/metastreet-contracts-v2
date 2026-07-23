@@ -100,11 +100,14 @@ must prepare calldata for review only and must not sign mainnet transactions.
 | **delegate.xyz V1 registry**            | `0x00000000000076A84feF008CDAbe6409d2FE638B` | Canonical (same on all chains)                 |
 | **delegate.xyz V2 registry**            | `0x00000000000000447e69651d841bD8D104Bed493` | Canonical (same on all chains)                 |
 
-ENG-3686 adds a size-constrained `setPriceOracle(address)` dispatcher to
+ENG-3686 adds a size-constrained `setPriceOracle(address)` selector shim to
 `WeightedRateERC1155CollectionPool` so the existing BeaconProxy can be
-upgraded and then repointed to the guarded oracle from
-`fabrica-land/fabrica-v3-contracts`. The mainnet operation is a Safe packet
-reviewed by Tim/Fede before execution. Engineers may deploy inert
+upgraded and then repointed to the hardened `SimpleSignedPriceOracle`
+deployed from this fork. The pool is close to EIP-170, so the shim lives in
+`fallback()` and accepts only the canonical `setPriceOracle(address)` selector
+with 36-byte calldata; empty calldata and every other selector revert
+`InvalidParameters()`. The mainnet operation is a Safe packet reviewed by
+Tim/Fede before execution. Engineers may deploy inert
 implementations and produce calldata, but must not sign, broadcast, or execute
 mainnet Safe operations.
 
@@ -121,11 +124,17 @@ For ENG-3686 mainnet oracle repointing, the Safe sequence is two calls:
 1. `UpgradeableBeacon.upgradeTo(newImpl)`
 2. `WeightedRateERC1155CollectionPool.setPriceOracle(guardedOracle)`
 
-`setPriceOracle(address)` is dispatched through the pool fallback to keep the
-pool under EIP-170. Authorization permits the pool admin itself or
-`Ownable(pool.admin()).owner()`. If the admin `owner()` lookup fails or returns
-any other caller, the operation reverts with `InvalidPriceOracleUpdater()`.
-The oracle write uses the existing ERC-7201
+The `setPriceOracle(address)` selector shim is callable only by the pool admin
+itself or `Ownable(pool.admin()).owner()`. For the Fabrica mainnet pool this
+makes the PoolFactory owner Safe the operational repoint authority. Any future
+factory owner change is therefore a pool oracle-security event and must be
+reviewed with the same weight as beacon ownership. If the admin `owner()`
+lookup fails or returns any other caller, the operation reverts with
+`InvalidPriceOracleUpdater()`. Candidate oracle addresses must be nonzero,
+must contain code, must differ from the current oracle, and must respond to a
+`price(address,address,uint256[],uint256[],bytes)` staticcall with either a
+32-byte return value or a typed revert from the candidate implementation. The
+oracle write uses the existing ERC-7201
 `externalPriceOracle.priceOracleStorage` slot and emits
 `PriceOracleUpdated(previousOracle, newOracle, caller)`.
 
@@ -135,16 +144,31 @@ Generate the exact mainnet Safe calldata packet without broadcasting:
 export FABRICA_MAINNET_LENDING_BEACON=0x30E9A2082E297a2E18615224A6146f6c73F7b7A6
 export FABRICA_MAINNET_LENDING_POOL=0x221014c0b6871f3F0d57F262ae6B5b6CD2901456
 export FABRICA_MAINNET_LENDING_SAFE=0x769586A65825B028b005176F1ebbd3B82bB07Fb0
+export FABRICA_MAINNET_SAFE_MULTISEND_CALL_ONLY=<Safe MultiSendCallOnly contract>
 export FABRICA_MAINNET_LENDING_NEW_IMPL=<deployed WeightedRateERC1155CollectionPool 2.16 implementation>
-export FABRICA_MAINNET_GUARDED_PRICE_ORACLE=<deployed guarded oracle>
+export FABRICA_MAINNET_GUARDED_PRICE_ORACLE=<deployed hardened SimpleSignedPriceOracle>
 
 forge script script/FabricaLendingPoolMainnetOracleRepointPacket.s.sol:FabricaLendingPoolMainnetOracleRepointPacketScript \
   --rpc-url $MAINNET_RPC_URL
 ```
 
-The script is view-only. It validates beacon owner, factory owner, nonzero
-code at both target addresses, and non-no-op prestate before printing calldata
-and required postconditions.
+The script is view-only. It validates beacon owner, factory owner,
+MultiSendCallOnly code, nonzero code at both target addresses, and non-no-op
+prestate before printing both individual calldata legs and the exact
+MultiSendCallOnly `multiSend(bytes)` calldata wrapping:
+
+1. `UpgradeableBeacon.upgradeTo(newImpl)`
+2. `WeightedRateERC1155CollectionPool.setPriceOracle(hardenedOracle)`
+
+Operators should execute the two calls atomically through Safe
+MultiSendCallOnly. An upgrade-only partial resting state is not corrupting:
+the pool still points at the old oracle and remains in the pre-cutover risk
+posture. It is nevertheless incomplete and must not be treated as a finished
+mainnet-liquidity control. The accepted post-batch readback is:
+`beacon.implementation() == newImpl`,
+`pool.IMPLEMENTATION_VERSION() == "2.16"`, and
+`pool.priceOracle() == hardenedOracle`, with pool admin and balances/loan
+state unchanged.
 
 The upgrade is a single script (`FabricaLendingPoolUpgrade.s.sol`) that
 deploys the new implementation AND calls `beacon.upgradeTo(newImpl)` in

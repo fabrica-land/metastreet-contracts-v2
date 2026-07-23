@@ -224,7 +224,10 @@ contract WeightedRateERC1155CollectionPool is
     /**************************************************************************/
 
     /**
-     * @notice Dispatch size-constrained admin extensions
+     * @notice Size-constrained dispatcher for setPriceOracle(address)
+     * @dev The pool is close to EIP-170. The fallback accepts only the
+     *      setPriceOracle(address) selector with canonical 36-byte calldata;
+     *      every other selector or empty calldata reverts InvalidParameters().
      */
     fallback() external {
         if (msg.sig != SET_PRICE_ORACLE_SELECTOR || msg.data.length != 36) revert InvalidParameters();

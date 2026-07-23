@@ -62,6 +62,12 @@ contract MockPriceOracle is IPriceOracle {
     }
 }
 
+contract WrongShapeOracle {
+    function notPrice() external pure returns (uint256) {
+        return 1;
+    }
+}
+
 contract NonOwnablePoolAdmin {
     function createPool(address beacon, bytes memory params) external returns (address) {
         return address(new BeaconProxy(beacon, abi.encodeWithSignature("initialize(bytes)", params)));
@@ -83,7 +89,9 @@ contract FabricaLendingPoolOracleRepointTest is Test {
     address internal constant MAINNET_DEPOSIT_TOKEN_IMPL = 0xa8920d5dc52eEDD33570FDbAC21d02b7e8EE9634;
     address internal constant MAINNET_WRAPPER = 0x05489aC114fBaaedeE4a49B67fCc5666C951E552;
     address internal constant DUMMY_COLLATERAL_TOKEN = address(0xCA11A7E);
+    bytes4 internal constant INVALID_PARAMETERS_SELECTOR = bytes4(keccak256("InvalidParameters()"));
     uint64 internal constant MAINNET_LIQUIDATION_GRACE_PERIOD = 15 days;
+    uint256 internal constant MAINNET_FORK_BLOCK = 25_597_121;
 
     event PriceOracleUpdated(address indexed previousOracle, address indexed newOracle, address indexed caller);
 
@@ -129,6 +137,15 @@ contract FabricaLendingPoolOracleRepointTest is Test {
         IOracleRepoint(pool).setPriceOracle(address(replacementOracle));
     }
 
+    function test_fallbackRejectsEmptyAndUnknownSelectors() public {
+        (bool ok, bytes memory data) = pool.call("");
+        assertFalse(ok, "empty calldata reverted");
+        _assertRevertSelector(data, INVALID_PARAMETERS_SELECTOR);
+        (ok, data) = pool.call(abi.encodeWithSelector(bytes4(0x12345678), address(replacementOracle)));
+        assertFalse(ok, "unknown selector reverted");
+        _assertRevertSelector(data, INVALID_PARAMETERS_SELECTOR);
+    }
+
     function test_nonOwnableAdminOwnerLookupFailsClosed() public {
         NonOwnablePoolAdmin admin = new NonOwnablePoolAdmin();
         address adminPool = admin.createPool(address(beacon), _poolParams(address(initialOracle)));
@@ -138,7 +155,7 @@ contract FabricaLendingPoolOracleRepointTest is Test {
         IOracleRepoint(adminPool).setPriceOracle(address(replacementOracle));
     }
 
-    function test_repointRejectsZeroNoCodeAndUnchangedOracle() public {
+    function test_repointRejectsZeroNoCodeWrongShapeAndUnchangedOracle() public {
         vm.prank(address(factory));
         vm.expectRevert(abi.encodeWithSelector(ExternalPriceOracle.InvalidPriceOracle.selector, address(0)));
         IOracleRepoint(pool).setPriceOracle(address(0));
@@ -146,6 +163,10 @@ contract FabricaLendingPoolOracleRepointTest is Test {
         vm.prank(address(factory));
         vm.expectRevert(abi.encodeWithSelector(ExternalPriceOracle.InvalidPriceOracle.selector, noCode));
         IOracleRepoint(pool).setPriceOracle(noCode);
+        address wrongShape = address(new WrongShapeOracle());
+        vm.prank(address(factory));
+        vm.expectRevert(abi.encodeWithSelector(ExternalPriceOracle.InvalidPriceOracle.selector, wrongShape));
+        IOracleRepoint(pool).setPriceOracle(wrongShape);
         vm.prank(address(factory));
         vm.expectRevert(
             abi.encodeWithSelector(ExternalPriceOracle.PriceOracleUnchanged.selector, address(initialOracle))
@@ -161,7 +182,8 @@ contract FabricaLendingPoolOracleRepointTest is Test {
     }
 
     function test_mainnetFork_safeUpgradeAndRepointPreservesPoolState() public {
-        if (MAINNET_POOL.code.length == 0) return;
+        vm.createSelectFork(vm.envString("MAINNET_RPC_URL"), MAINNET_FORK_BLOCK);
+        assertGt(MAINNET_POOL.code.length, 0, "mainnet pool code required");
         ILivePool livePool = ILivePool(MAINNET_POOL);
         ILiveUpgradeableBeacon liveBeacon = ILiveUpgradeableBeacon(MAINNET_BEACON);
         bytes32 slotBefore = vm.load(MAINNET_POOL, PRICE_ORACLE_LOCATION);
@@ -193,7 +215,7 @@ contract FabricaLendingPoolOracleRepointTest is Test {
         );
         assertEq(_livePoolPrice(livePool), 123456789, "pool routes through new oracle");
         assertEq(livePool.admin(), adminBefore, "admin preserved");
-        assertEq(ownerBefore, CANONICAL_FABRICA_SAFE, "owner preserved");
+        assertEq(liveBeacon.owner(), ownerBefore, "owner preserved");
         assertTrue(implementationBefore != address(0), "old implementation nonzero");
     }
 
@@ -247,5 +269,10 @@ contract FabricaLendingPoolOracleRepointTest is Test {
         uint256[] memory quantities = new uint256[](1);
         quantities[0] = 1;
         return livePool.price(DUMMY_COLLATERAL_TOKEN, MAINNET_USDC, tokenIds, quantities, "");
+    }
+
+    function _assertRevertSelector(bytes memory data, bytes4 selector) internal pure {
+        assertEq(data.length, 4, "revert data length");
+        assertEq(bytes4(data), selector, "revert selector");
     }
 }
