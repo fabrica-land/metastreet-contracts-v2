@@ -266,17 +266,25 @@ contract WeightedRateERC1155CollectionPool is
     /* ERC1155Holder */
     /**************************************************************************/
 
-    function onERC1155Received(address, address, uint256, uint256, bytes memory) public pure returns (bytes4) {
-        return this.onERC1155Received.selector;
+    /**
+     * @notice Accept a single ERC1155 collateral transfer
+     * @return ERC1155 receiver selector
+     */
+    function onERC1155Received(address, address, uint256, uint256, bytes memory) external pure returns (bytes4) {
+        return IERC1155Receiver.onERC1155Received.selector;
     }
 
+    /**
+     * @notice Reject ERC1155 batch transfers
+     * @return Zero selector to reject the batch transfer
+     */
     function onERC1155BatchReceived(
         address,
         address,
         uint256[] memory,
         uint256[] memory,
         bytes memory
-    ) public pure returns (bytes4) {
+    ) external pure returns (bytes4) {
         /* Batch transfers not supported */
         return 0;
     }
