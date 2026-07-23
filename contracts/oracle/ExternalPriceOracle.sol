@@ -33,6 +33,34 @@ contract ExternalPriceOracle is PriceOracle {
     bytes32 private constant PRICE_ORACLE_LOCATION = 0x5cc3a0ef4fb602d81e01a142e768b704108e3b2e96852939d75763e011a39b00;
 
     /**************************************************************************/
+    /* Errors */
+    /**************************************************************************/
+
+    /**
+     * @notice Invalid price oracle
+     * @param priceOracle Price oracle address
+     */
+    error InvalidPriceOracle(address priceOracle);
+
+    /**
+     * @notice Price oracle unchanged
+     * @param priceOracle Price oracle address
+     */
+    error PriceOracleUnchanged(address priceOracle);
+
+    /**************************************************************************/
+    /* Events */
+    /**************************************************************************/
+
+    /**
+     * @notice Emitted when the external price oracle is updated
+     * @param previousOracle Previous price oracle address
+     * @param newOracle New price oracle address
+     * @param caller Caller that updated the oracle
+     */
+    event PriceOracleUpdated(address indexed previousOracle, address indexed newOracle, address indexed caller);
+
+    /**************************************************************************/
     /* Initializer */
     /**************************************************************************/
 
@@ -52,10 +80,23 @@ contract ExternalPriceOracle is PriceOracle {
      *
      * @return $ Reference to price oracle address storage
      */
-    function _getPriceOracleStorage() private pure returns (PriceOracleStorage storage $) {
+    function _getPriceOracleStorage() internal pure returns (PriceOracleStorage storage $) {
         assembly {
             $.slot := PRICE_ORACLE_LOCATION
         }
+    }
+
+    /**
+     * @notice Set the external price oracle address
+     * @param newOracle New price oracle address
+     */
+    function _setPriceOracle(address newOracle) internal {
+        if (newOracle == address(0) || newOracle.code.length == 0) revert InvalidPriceOracle(newOracle);
+        PriceOracleStorage storage $ = _getPriceOracleStorage();
+        address previousOracle = $.addr;
+        if (newOracle == previousOracle) revert PriceOracleUnchanged(newOracle);
+        $.addr = newOracle;
+        emit PriceOracleUpdated(previousOracle, newOracle, msg.sender);
     }
 
     /**************************************************************************/
