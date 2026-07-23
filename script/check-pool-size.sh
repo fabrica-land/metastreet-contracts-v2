@@ -24,13 +24,25 @@ set -euo pipefail
 LIMIT=24576
 # Contracts Fabrica deploys and therefore must fit under EIP-170.
 CONTRACTS=("WeightedRateERC1155CollectionPool")
+BUILD_PATHS=(
+  "contracts/configurations/WeightedRateERC1155CollectionPool.sol"
+  "contracts/PoolFactory.sol"
+  "contracts/liquidators/EnglishAuctionCollateralLiquidator.sol"
+  "contracts/oracle/SimpleSignedPriceOracle.sol"
+  "script"
+  "test"
+)
 
 cd "$(dirname "$0")/.."
+
+# Make the measurement independent of whatever test/script compilation artifacts
+# happened to exist before this gate ran.
+forge clean
 
 # `forge build --sizes` exits non-zero because the undeployed upstream configs
 # are over EIP-170 (see header) — that exit code is expected and NOT the gate.
 # Capture the JSON regardless; this script's own exit code is the gate.
-SIZES_JSON="$(forge build --sizes --json 2>/dev/null || true)"
+SIZES_JSON="$(forge build --sizes --json "${BUILD_PATHS[@]}" 2>/dev/null || true)"
 if [ -z "$SIZES_JSON" ]; then
   echo "FAIL: forge build produced no --sizes JSON output"
   exit 1

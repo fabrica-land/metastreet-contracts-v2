@@ -13,7 +13,7 @@ import {SimpleSignedPriceOracle} from "fabrica-lending-pools/oracle/SimpleSigned
  * infrastructure deployed by FabricaLendingPoolStackDeploy.s.sol. The
  * pool's collateral filter is set to a single FabricaToken collection;
  * the oracle is told to expect signatures from a Fabrica-controlled
- * signer.
+ * ERC-1271 signer contract.
  *
  * Mirrors the mainnet pool 0x842ffbf1ad5314503904626122376f71603a3cf9
  * configuration verbatim (durations, rates) unless env overrides are
@@ -21,7 +21,9 @@ import {SimpleSignedPriceOracle} from "fabrica-lending-pools/oracle/SimpleSigned
  *
  * The script registers `oracleSigner` as the SimpleSignedPriceOracle
  * signer for `collateralToken`. Caller must be the oracle's owner (the
- * deployer from FabricaLendingPoolStackDeploy).
+ * deployer from FabricaLendingPoolStackDeploy). The hardened oracle
+ * remains fail-closed until collateral policy, token policies, and the
+ * market enable switch are configured using the runbook.
  *
  * Required env:
  *   FABRICA_LENDING_FACTORY            PoolFactory proxy address
@@ -29,7 +31,7 @@ import {SimpleSignedPriceOracle} from "fabrica-lending-pools/oracle/SimpleSigned
  *   FABRICA_LENDING_ORACLE             SimpleSignedPriceOracle proxy address
  *   FABRICA_LENDING_CURRENCY_TOKEN     ERC20 currency (USDC)
  *   FABRICA_LENDING_COLLATERAL_TOKEN   FabricaToken collection address
- *   FABRICA_LENDING_ORACLE_SIGNER      EOA whose signatures the oracle will accept
+ *   FABRICA_LENDING_ORACLE_SIGNER      ERC-1271 contract whose signatures the oracle will accept
  *
  * !!! CURRENCY TOKEN COMPLIANCE — READ BEFORE DEPLOYING A POOL !!!
  *
@@ -106,6 +108,7 @@ contract FabricaLendingPoolCreateScript is Script {
         console.log("Currency token: ", currencyToken);
         console.log("Collateral:     ", collateralToken);
         console.log("Oracle signer:  ", oracleSigner);
+        console.log("Oracle policy:   disabled until collateral/token policies are configured");
         vm.startBroadcast();
         SimpleSignedPriceOracle(oracleProxy).setSigner(collateralToken, oracleSigner);
         address pool = PoolFactory(factory).createProxied(beacon, params);
