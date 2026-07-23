@@ -42,6 +42,10 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
     bytes4 private constant MULTISEND_SELECTOR = 0x8d80ff0a;
     bytes4 private constant UPGRADE_TO_SELECTOR = 0x3659cfe6;
     bytes4 private constant SET_PRICE_ORACLE_SELECTOR = 0x530e784f;
+    address private constant CANONICAL_MAINNET_LENDING_BEACON = 0x30E9A2082E297a2E18615224A6146f6c73F7b7A6;
+    address private constant CANONICAL_MAINNET_LENDING_POOL = 0x221014c0b6871f3F0d57F262ae6B5b6CD2901456;
+    address private constant CANONICAL_MAINNET_LENDING_SAFE = 0x769586A65825B028b005176F1ebbd3B82bB07Fb0;
+    address private constant CANONICAL_MAINNET_POOL_ADMIN = 0x759991Bf617BAc3728983bF03Fb4d744C51F2A4F;
     address private constant CANONICAL_SAFE_MULTISEND_CALL_ONLY = 0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761;
 
     function setUp() public {}
@@ -58,6 +62,10 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         address poolAdminOwner = IMainnetOwnable(poolAdmin).owner();
         address currentImpl = IMainnetBeacon(beacon).implementation();
         address currentOracle = IMainnetPool(pool).priceOracle();
+        require(beacon == CANONICAL_MAINNET_LENDING_BEACON, "unexpected beacon");
+        require(pool == CANONICAL_MAINNET_LENDING_POOL, "unexpected pool");
+        require(expectedSafe == CANONICAL_MAINNET_LENDING_SAFE, "unexpected Safe");
+        require(poolAdmin == CANONICAL_MAINNET_POOL_ADMIN, "unexpected pool admin");
         require(beaconOwner == expectedSafe, "unexpected beacon owner");
         require(poolAdminOwner == expectedSafe, "unexpected pool admin owner");
         require(multiSendCallOnly == CANONICAL_SAFE_MULTISEND_CALL_ONLY, "unexpected MultiSendCallOnly");

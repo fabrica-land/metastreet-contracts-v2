@@ -160,11 +160,13 @@ forge script script/FabricaLendingPoolMainnetOracleRepointPacket.s.sol:FabricaLe
   --rpc-url $MAINNET_RPC_URL
 ```
 
-The script is view-only. It validates beacon owner, factory owner, the
-canonical Safe MultiSendCallOnly address, nonzero code at both target
-addresses, the new implementation name/version, immutable dependency parity
-with the live pool, hardened oracle version/domain/owner, and non-no-op
-prestate before printing both individual calldata legs and the exact
+The script is view-only. It validates the env target addresses against the
+canonical mainnet beacon, pool, Safe, and PoolFactory/admin proxy listed above;
+then it validates beacon owner, factory owner, the canonical Safe
+MultiSendCallOnly address, nonzero code at both target addresses, the new
+implementation name/version, immutable dependency parity with the live pool,
+hardened oracle version/domain/owner, and non-no-op prestate before printing
+both individual calldata legs and the exact
 MultiSendCallOnly `multiSend(bytes)` calldata wrapping:
 
 1. `UpgradeableBeacon.upgradeTo(newImpl)`
