@@ -38,7 +38,7 @@ interface IWeightedRateERC1155CollectionPoolView {
  *
  * Required env (pulled off the live pool — see LENDING-POOL-RUNBOOK.md):
  *   FABRICA_LENDING_BEACON                       UpgradeableBeacon address
- *   FABRICA_LENDING_COLLATERAL_LIQUIDATOR        Auction-based liquidator proxy
+ *   FABRICA_LENDING_COLLATERAL_LIQUIDATOR        Reserve-aware auction liquidator proxy
  *   FABRICA_LENDING_DELEGATE_REGISTRY_V1         delegate.xyz V1 canonical
  *   FABRICA_LENDING_DELEGATE_REGISTRY_V2         delegate.xyz V2 canonical
  *   FABRICA_LENDING_ERC20_DEPOSIT_TOKEN_IMPL     ERC20DepositTokenImplementation
@@ -51,13 +51,21 @@ interface IWeightedRateERC1155CollectionPoolView {
  *      immutable introduced in ENG-3113 — there is no prior value to match,
  *      so set it explicitly to the intended window for the upgraded pool.
  *
- * Constructor immutables MUST match the current beacon target —
+ * Constructor immutables MUST match the current beacon target except for
+ * an intentional liquidator replacement —
  * `WeightedRateERC1155CollectionPool` stores `_collateralLiquidator`,
  * `_delegateRegistryV1`, `_delegateRegistryV2`, `_collateralWrapper{1,2,3}`,
- * and `_erc20DepositTokenImpl` as bytecode immutables. Re-using the same
- * values guarantees that every existing BeaconProxy pool continues to
- * see the same dependency contracts post-upgrade. The runbook documents
- * the `cast call` queries that read these off the live pool.
+ * and `_erc20DepositTokenImpl` as bytecode immutables. ENG-3655 must pass
+ * a newly deployed reserve-aware `EnglishAuctionCollateralLiquidator`
+ * configured for the ERC1155 wrapper; reusing the pre-ENG-3655 liquidator
+ * would make reserve-aware liquidations fail after the beacon upgrade.
+ * The other immutable values should match the current implementation so
+ * every existing BeaconProxy pool continues to see the same dependency
+ * contracts post-upgrade. The runbook documents the `cast call` queries.
+ *
+ * Pre-cutover gate: verify there are zero active liquidations/auctions for
+ * pools on this beacon. Active old-liquidator auctions may callback into
+ * pools whose immutable liquidator has changed and fail liquidation finality.
  *
  * Deployment (per CLAUDE.md — always include `--verify`):
  *   forge script script/FabricaLendingPoolUpgrade.s.sol:FabricaLendingPoolUpgradeScript \

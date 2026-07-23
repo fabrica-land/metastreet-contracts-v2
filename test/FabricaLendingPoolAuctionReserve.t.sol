@@ -371,6 +371,96 @@ contract FabricaLendingPoolAuctionReserveTest is Test {
         );
     }
 
+    function test_weighted_erc1155_liquidation_accepts_wrapped_alias_collateral() public {
+        uint256 underlyingTokenId = 3656;
+        TestERC1155 canonical = new TestERC1155("");
+        TestERC1155 aliasToken = new TestERC1155("");
+        ERC1155CollateralWrapper wrapper = new ERC1155CollateralWrapper();
+        StrictERC1155ReserveOracle oracle =
+            new StrictERC1155ReserveOracle(underlyingTokenId, 1, BORROW_CONTEXT, LIQUIDATION_CONTEXT, RESERVE);
+
+        address[] memory wrappers = new address[](1);
+        wrappers[0] = address(wrapper);
+        EnglishAuctionCollateralLiquidator reserveLiquidator = _deployLiquidator(wrappers);
+        address[] memory collateralTokens = new address[](2);
+        collateralTokens[0] = address(canonical);
+        collateralTokens[1] = address(aliasToken);
+        uint64[] memory durations = new uint64[](1);
+        durations[0] = DURATION;
+        uint64[] memory rates = new uint64[](1);
+        rates[0] = uint64(uint256(0.1e18) / 365 days);
+        WeightedRateERC1155CollectionPool implementation = new WeightedRateERC1155CollectionPool(
+            address(reserveLiquidator), address(0), address(0), address(erc20DepositTokenImpl), wrappers, 0
+        );
+        WeightedRateERC1155CollectionPool weightedPool = WeightedRateERC1155CollectionPool(
+            address(
+                new ERC1967Proxy(
+                    address(implementation),
+                    abi.encodeCall(
+                        WeightedRateERC1155CollectionPool.initialize,
+                        (abi.encode(collateralTokens, address(currency), address(oracle), durations, rates))
+                    )
+                )
+            )
+        );
+
+        currency.mint(lender, LENDER_DEPOSIT);
+        vm.prank(lender);
+        currency.approve(address(weightedPool), type(uint256).max);
+        vm.prank(lender);
+        weightedPool.deposit(TICK, LENDER_DEPOSIT, 1);
+
+        aliasToken.mint(borrower, underlyingTokenId, 1, "");
+        vm.prank(borrower);
+        aliasToken.setApprovalForAll(address(wrapper), true);
+
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = underlyingTokenId;
+        uint256[] memory quantities = new uint256[](1);
+        quantities[0] = 1;
+        uint256 nonce = wrapper.nonce();
+
+        vm.prank(borrower);
+        uint256 wrappedTokenId = wrapper.mint(address(aliasToken), tokenIds, quantities);
+
+        bytes memory wrapperContext = abi.encode(address(aliasToken), nonce, uint256(1), tokenIds, quantities);
+        bytes memory options = bytes.concat(
+            _borrowOption(Pool.BorrowOptions.CollateralWrapperContext, wrapperContext),
+            _borrowOption(Pool.BorrowOptions.OracleContext, BORROW_CONTEXT)
+        );
+
+        vm.prank(borrower);
+        wrapper.approve(address(weightedPool), wrappedTokenId);
+
+        vm.recordLogs();
+        vm.prank(borrower);
+        weightedPool.borrow(
+            borrower, PRINCIPAL, DURATION, address(wrapper), wrappedTokenId, LENDER_DEPOSIT, poolTicks(), options
+        );
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 loanTopic = keccak256("LoanOriginated(bytes32,bytes)");
+        bytes memory receipt;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].emitter == address(weightedPool) && logs[i].topics.length > 1 && logs[i].topics[0] == loanTopic)
+            {
+                receipt = abi.decode(logs[i].data, (bytes));
+                break;
+            }
+        }
+        assertGt(receipt.length, 0, "LoanOriginated event not found");
+
+        vm.warp(block.timestamp + DURATION + 1);
+        bytes32 liquidationHash = _liquidationHash(address(wrapper), wrappedTokenId);
+        weightedPool.liquidate(receipt, LIQUIDATION_CONTEXT);
+
+        assertEq(
+            reserveLiquidator.auctionReservePrice(liquidationHash, address(aliasToken), underlyingTokenId),
+            RESERVE,
+            "alias reserve"
+        );
+    }
+
     function test_reserve_aware_liquidation_allows_single_wrapped_id_with_quantity_above_one() public {
         TestERC1155 erc1155 = new TestERC1155("");
         ERC1155CollateralWrapper wrapper = new ERC1155CollateralWrapper();

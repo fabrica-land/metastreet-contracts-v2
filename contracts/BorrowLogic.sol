@@ -476,7 +476,7 @@ library BorrowLogic {
             address underlyingCollateralToken;
             (underlyingCollateralToken, collateralTokenIds, collateralTokenQuantities) = ICollateralWrapper(poolCollateralWrapper)
                 .enumerateWithQuantities(loanReceipt.collateralTokenId, loanReceipt.collateralWrapperContext);
-            if (underlyingCollateralToken != poolCollateralToken) revert IPool.InvalidLiquidationReserve();
+            if (underlyingCollateralToken == address(0)) revert IPool.InvalidLiquidationReserve();
         } else {
             collateralTokenIds = new uint256[](1);
             collateralTokenIds[0] = loanReceipt.collateralTokenId;
