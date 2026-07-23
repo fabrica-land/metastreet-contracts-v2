@@ -114,10 +114,11 @@ mainnet Safe operations.
 Exact-head size evidence must stay attached to the PR because this pool is at
 the EIP-170 edge. On the ENG-3686 final board head, `script/check-pool-size.sh`
 reported `WeightedRateERC1155CollectionPool runtime=24260B (EIP-170 limit
-24576B, margin 316B)`. `forge build --sizes` also compiles this target under
-the limit; its repository-wide nonzero exit is from pre-existing, unrelated
-weighted-rate variants that remain oversized and are not the ENG-3686
-implementation target.
+24576B, margin 316B)`. The full size command,
+`forge clean && forge build --sizes --json`, reports the
+`WeightedRateERC1155CollectionPool` target under the EIP-170 limit; its
+repository-wide nonzero exit is from pre-existing, unrelated weighted-rate
+variants that remain oversized and are not the ENG-3686 implementation target.
 
 ## Upgrade Pattern
 

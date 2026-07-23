@@ -85,7 +85,7 @@ contract ExternalPriceOracle is PriceOracle {
      *
      * @return $ Reference to price oracle address storage
      */
-    function _getPriceOracleStorage() internal pure returns (PriceOracleStorage storage $) {
+    function _getPriceOracleStorage() private pure returns (PriceOracleStorage storage $) {
         assembly {
             $.slot := PRICE_ORACLE_LOCATION
         }
@@ -109,7 +109,7 @@ contract ExternalPriceOracle is PriceOracle {
      * @notice Validate that the candidate oracle exposes the expected price() API shape
      * @param newOracle New price oracle address
      */
-    function _validatePriceOracleShape(address newOracle) internal view {
+    function _validatePriceOracleShape(address newOracle) private view {
         uint256[] memory emptyTokenIds = new uint256[](0);
         (bool ok, bytes memory data) = newOracle.staticcall(
             abi.encodeCall(

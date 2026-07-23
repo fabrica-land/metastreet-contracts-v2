@@ -16,6 +16,7 @@ interface IMainnetPool {
     function collateralWrappers() external view returns (address[] memory);
     function delegationRegistry() external view returns (address);
     function delegationRegistryV2() external view returns (address);
+    function getERC20DepositTokenImplementation() external view returns (address);
     function liquidationGracePeriod() external view returns (uint64);
     function priceOracle() external view returns (address);
 }
@@ -27,6 +28,18 @@ interface IMainnetOwnable {
 interface IHardenedSimpleSignedPriceOracle {
     function DOMAIN_VERSION() external view returns (string memory);
     function IMPLEMENTATION_VERSION() external view returns (string memory);
+    function eip712Domain()
+        external
+        view
+        returns (
+            bytes1 fields,
+            string memory name,
+            string memory version,
+            uint256 chainId,
+            address verifyingContract,
+            bytes32 salt,
+            uint256[] memory extensions
+        );
     function owner() external view returns (address);
 }
 
@@ -51,9 +64,13 @@ error WrapperDrift();
 error LiquidatorDrift();
 error RegistryV1Drift();
 error RegistryV2Drift();
+error DepositTokenImplementationDrift();
 error GracePeriodDrift();
 error BadOracleVersion();
 error BadOracleDomain();
+error BadOracleDomainName();
+error BadOracleDomainChain();
+error BadOracleDomainVerifier();
 error UnexpectedOracleOwner();
 
 /**
@@ -74,7 +91,9 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
     address private constant CANONICAL_MAINNET_POOL_ADMIN = 0x759991Bf617BAc3728983bF03Fb4d744C51F2A4F;
     address private constant CANONICAL_MAINNET_CURRENT_IMPL = 0x623Ce6d9B158D007fD1E79e5a58B177aB9b51d78;
     address private constant CANONICAL_MAINNET_WEAK_ORACLE = 0x3ed9E25AeBCd16860c4030692D47E0B116Ae04A5;
+    address private constant CANONICAL_MAINNET_DEPOSIT_TOKEN_IMPL = 0xa8920d5dc52eEDD33570FDbAC21d02b7e8EE9634;
     address private constant CANONICAL_SAFE_MULTISEND_CALL_ONLY = 0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761;
+    string private constant CANONICAL_ORACLE_DOMAIN_NAME = "All Fabrica Properties";
 
     function setUp() public {}
 
@@ -123,9 +142,22 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         if (IMainnetPool(newImpl).delegationRegistryV2() != IMainnetPool(pool).delegationRegistryV2()) {
             revert RegistryV2Drift();
         }
+        if (
+            IMainnetPool(newImpl).getERC20DepositTokenImplementation() != CANONICAL_MAINNET_DEPOSIT_TOKEN_IMPL
+                || IMainnetPool(pool).getERC20DepositTokenImplementation() != CANONICAL_MAINNET_DEPOSIT_TOKEN_IMPL
+        ) {
+            revert DepositTokenImplementationDrift();
+        }
         if (IMainnetPool(newImpl).liquidationGracePeriod() != IMainnetPool(pool).liquidationGracePeriod()) {
             revert GracePeriodDrift();
         }
+        (
+            ,
+            string memory oracleDomainName,
+            string memory oracleDomainVersion,
+            uint256 oracleDomainChainId,
+            address oracleDomainVerifier,,
+        ) = IHardenedSimpleSignedPriceOracle(guardedOracle).eip712Domain();
         if (
             keccak256(bytes(IHardenedSimpleSignedPriceOracle(guardedOracle).IMPLEMENTATION_VERSION()))
                 != keccak256(bytes("1.4"))
@@ -136,6 +168,12 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         ) {
             revert BadOracleDomain();
         }
+        if (keccak256(bytes(oracleDomainName)) != keccak256(bytes(CANONICAL_ORACLE_DOMAIN_NAME))) {
+            revert BadOracleDomainName();
+        }
+        if (keccak256(bytes(oracleDomainVersion)) != keccak256(bytes("1.2"))) revert BadOracleDomain();
+        if (oracleDomainChainId != block.chainid) revert BadOracleDomainChain();
+        if (oracleDomainVerifier != guardedOracle) revert BadOracleDomainVerifier();
         if (IHardenedSimpleSignedPriceOracle(guardedOracle).owner() != expectedSafe) revert UnexpectedOracleOwner();
         bytes memory upgradeCall = abi.encodeWithSelector(UPGRADE_TO_SELECTOR, newImpl);
         bytes memory repointCall = abi.encodeWithSelector(SET_PRICE_ORACLE_SELECTOR, guardedOracle);
