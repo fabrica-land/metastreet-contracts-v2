@@ -88,10 +88,7 @@ interface IPoolOracleBinding {
  *   FABRICA_LENDING_BEACON                  UpgradeableBeacon address
  *   FABRICA_LENDING_POOL_IMPL               WeightedRateERC1155CollectionPool implementation address
  *   FABRICA_LENDING_POOL                    BeaconProxy pool address using this oracle
- *   FABRICA_LENDING_ORACLE                  SimpleSignedPriceOracle address
- *   FABRICA_LENDING_ORACLE_IMPL             SimpleSignedPriceOracle implementation address;
- *                                           for direct deployments, set equal to
- *                                           FABRICA_LENDING_ORACLE
+ *   FABRICA_LENDING_ORACLE                  Direct SimpleSignedPriceOracle address
  *   FABRICA_LENDING_ORACLE_DOMAIN_NAME      SimpleSignedPriceOracle EIP-712 domain name
  *   FABRICA_LENDING_EXPECTED_CURRENT_OWNER  broadcaster/deployer that currently owns all three roles
  *   FABRICA_LENDING_FINAL_OWNER             canonical Fabrica Safe
@@ -121,7 +118,7 @@ contract FabricaLendingPoolFinalizeOwnershipScript is Script {
     error FinalOwnerMustDifferFromCurrentOwner(address owner);
     error UnexpectedFactoryImplementation(address actual, address expected);
     error UnexpectedBeaconImplementation(address actual, address expected);
-    error UnexpectedOracleImplementation(address actual, address expected);
+    error OracleMustBeDirect();
     error BeaconNotRegistered(address factory, address beacon);
     error UnexpectedOracleDomainName(string actual, string expected);
     error UnexpectedOracleDomainVersion(string actual, string expected);
@@ -145,7 +142,6 @@ contract FabricaLendingPoolFinalizeOwnershipScript is Script {
         address poolImpl = vm.envAddress("FABRICA_LENDING_POOL_IMPL");
         address pool = vm.envAddress("FABRICA_LENDING_POOL");
         address oracle = vm.envAddress("FABRICA_LENDING_ORACLE");
-        address oracleImpl = vm.envAddress("FABRICA_LENDING_ORACLE_IMPL");
         string memory oracleDomainName = vm.envString("FABRICA_LENDING_ORACLE_DOMAIN_NAME");
         address expectedCurrentOwner = vm.envAddress("FABRICA_LENDING_EXPECTED_CURRENT_OWNER");
         address finalOwner = vm.envAddress("FABRICA_LENDING_FINAL_OWNER");
@@ -155,11 +151,10 @@ contract FabricaLendingPoolFinalizeOwnershipScript is Script {
         _requireNonZero("poolImpl", poolImpl);
         _requireNonZero("pool", pool);
         _requireNonZero("oracle", oracle);
-        _requireNonZero("oracleImpl", oracleImpl);
         _requireNonZero("expectedCurrentOwner", expectedCurrentOwner);
         _requireNonZero("finalOwner", finalOwner);
         _validateOwnerConfig(expectedCurrentOwner, finalOwner, msg.sender);
-        _validateTargets(factory, factoryImpl, beacon, poolImpl, pool, oracle, oracleImpl, oracleDomainName);
+        _validateTargets(factory, factoryImpl, beacon, poolImpl, pool, oracle, oracleDomainName);
         console.log("Factory proxy:", factory);
         console.log("Beacon:", beacon);
         console.log("Pool:", pool);
@@ -208,7 +203,6 @@ contract FabricaLendingPoolFinalizeOwnershipScript is Script {
         address poolImpl,
         address pool,
         address oracle,
-        address oracleImpl,
         string memory oracleDomainName
     ) internal view {
         _requireContract("factory", factory);
@@ -217,11 +211,10 @@ contract FabricaLendingPoolFinalizeOwnershipScript is Script {
         _requireContract("poolImpl", poolImpl);
         _requireContract("pool", pool);
         _requireContract("oracle", oracle);
-        _requireContract("oracleImpl", oracleImpl);
         _validateFactory(factory, factoryImpl, beacon, pool);
         _validateBeacon(beacon, poolImpl);
         _validatePool(pool, beacon, oracle);
-        _validateOracle(oracle, oracleImpl, oracleDomainName);
+        _validateOracle(oracle, oracleDomainName);
     }
 
     function _validateFactory(address factory, address factoryImpl, address beacon, address pool) internal view {
@@ -247,13 +240,9 @@ contract FabricaLendingPoolFinalizeOwnershipScript is Script {
         if (poolOracle != oracle) revert UnexpectedPoolOracle(poolOracle, oracle);
     }
 
-    function _validateOracle(address oracle, address oracleImpl, string memory oracleDomainName) internal view {
-        address actualOracleImpl = address(uint160(uint256(vm.load(oracle, ERC1967_IMPLEMENTATION_SLOT))));
-        if (actualOracleImpl == address(0)) {
-            if (oracleImpl != oracle) revert UnexpectedOracleImplementation(actualOracleImpl, oracleImpl);
-        } else if (actualOracleImpl != oracleImpl) {
-            revert UnexpectedOracleImplementation(actualOracleImpl, oracleImpl);
-        }
+    function _validateOracle(address oracle, string memory oracleDomainName) internal view {
+        if (vm.load(oracle, ERC1967_IMPLEMENTATION_SLOT) != bytes32(0)) revert OracleMustBeDirect();
+        if (vm.load(oracle, ERC1967_BEACON_SLOT) != bytes32(0)) revert OracleMustBeDirect();
         (
             string memory domainName,
             string memory eip712DomainVersion,
@@ -271,10 +260,6 @@ contract FabricaLendingPoolFinalizeOwnershipScript is Script {
         string memory domainVersion = ISimpleSignedPriceOracleOwner(oracle).DOMAIN_VERSION();
         if (keccak256(bytes(domainVersion)) != keccak256(bytes(ORACLE_DOMAIN_VERSION))) {
             revert UnexpectedOracleDomainVersion(domainVersion, ORACLE_DOMAIN_VERSION);
-        }
-        string memory implDomainVersion = ISimpleSignedPriceOracleOwner(oracleImpl).DOMAIN_VERSION();
-        if (keccak256(bytes(implDomainVersion)) != keccak256(bytes(ORACLE_DOMAIN_VERSION))) {
-            revert UnexpectedOracleDomainVersion(implDomainVersion, ORACLE_DOMAIN_VERSION);
         }
     }
 

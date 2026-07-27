@@ -144,6 +144,7 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
     address private constant CANONICAL_MAINNET_ORACLE_SIGNER = 0xC888f5e3Dd4FBeB37f6e1bA6FA68c83aB0cf7B2c;
     bytes32 private constant ERC1967_IMPLEMENTATION_SLOT =
         0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+    bytes32 private constant ERC1967_BEACON_SLOT = 0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50;
     string private constant CANONICAL_ORACLE_DOMAIN_NAME = "All US Land";
 
     function setUp() public {}
@@ -288,6 +289,7 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
     ) private view {
         if (guardedOracle.code.length == 0) revert MissingGuardedOracleCode();
         if (vm.load(guardedOracle, ERC1967_IMPLEMENTATION_SLOT) != bytes32(0)) revert GuardedOracleMustBeDirect();
+        if (vm.load(guardedOracle, ERC1967_BEACON_SLOT) != bytes32(0)) revert GuardedOracleMustBeDirect();
         if (guardedOracle.codehash != expectedCodehash) revert UnexpectedGuardedOracleCodehash();
         if (!_isCanonicalLiveTokenIdList(liveTokenIds)) revert UnexpectedLiveTokenIds();
 
