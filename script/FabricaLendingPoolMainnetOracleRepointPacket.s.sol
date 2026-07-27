@@ -173,11 +173,10 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         );
 
         if (newImpl.codehash != expectedNewImplCodehash) revert UnexpectedNewImplementationCodehash();
+        (bytes memory multiSendTransactions, bytes memory multiSendCall) =
+            _buildMultiSendCall(beacon, pool, newImpl, guardedOracle);
         bytes memory upgradeCall = abi.encodeWithSelector(UPGRADE_TO_SELECTOR, newImpl);
         bytes memory repointCall = abi.encodeWithSelector(SET_PRICE_ORACLE_SELECTOR, guardedOracle);
-        bytes memory multiSendTransactions =
-            bytes.concat(_multiSendTx(beacon, upgradeCall), _multiSendTx(pool, repointCall));
-        bytes memory multiSendCall = abi.encodeWithSelector(MULTISEND_SELECTOR, multiSendTransactions);
 
         console.log("=== ENG-3695 mainnet no-floor implementation + oracle Safe packet dry-run ===");
         console.log("Beacon owner Safe:         ", expectedSafe);
@@ -356,6 +355,17 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
 
     function _multiSendTx(address to, bytes memory data) private pure returns (bytes memory) {
         return abi.encodePacked(CALL_OPERATION, to, uint256(0), data.length, data);
+    }
+
+    function _buildMultiSendCall(address beacon, address pool, address newImpl, address guardedOracle)
+        internal
+        pure
+        returns (bytes memory multiSendTransactions, bytes memory multiSendCall)
+    {
+        bytes memory upgradeCall = abi.encodeWithSelector(UPGRADE_TO_SELECTOR, newImpl);
+        bytes memory repointCall = abi.encodeWithSelector(SET_PRICE_ORACLE_SELECTOR, guardedOracle);
+        multiSendTransactions = bytes.concat(_multiSendTx(beacon, upgradeCall), _multiSendTx(pool, repointCall));
+        multiSendCall = abi.encodeWithSelector(MULTISEND_SELECTOR, multiSendTransactions);
     }
 
     function _sameAddressArray(address[] memory a, address[] memory b) private pure returns (bool) {

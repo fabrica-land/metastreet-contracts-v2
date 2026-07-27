@@ -19,6 +19,7 @@ import {ERC1155CollateralWrapper} from "fabrica-lending-pools/wrappers/ERC1155Co
 
 import "./concretes/MockCollateralLiquidator.sol";
 import "./concretes/TestERC20.sol";
+import "../script/FabricaLendingPoolMainnetOracleRepointPacket.s.sol";
 
 interface IOracleRepoint {
     function setPriceOracle(address newOracle) external;
@@ -98,6 +99,16 @@ contract NonOwnablePoolAdmin {
     }
 }
 
+contract OracleRepointPacketHarness is FabricaLendingPoolMainnetOracleRepointPacketScript {
+    function buildMultiSendCall(address beacon, address pool, address newImpl, address guardedOracle)
+        external
+        pure
+        returns (bytes memory multiSendTransactions, bytes memory multiSendCall)
+    {
+        return _buildMultiSendCall(beacon, pool, newImpl, guardedOracle);
+    }
+}
+
 contract FabricaLendingPoolOracleRepointTest is Test {
     bytes32 internal constant PRICE_ORACLE_LOCATION =
         0x5cc3a0ef4fb602d81e01a142e768b704108e3b2e96852939d75763e011a39b00;
@@ -111,6 +122,8 @@ contract FabricaLendingPoolOracleRepointTest is Test {
     bytes32 internal constant MAINNET_POOL_CODEHASH =
         0x49e2841d5b438889ec5febabe744cbf0a90f8edd53739991ca021b23a1357c70;
     bytes4 internal constant INVALID_PARAMETERS_SELECTOR = bytes4(keccak256("InvalidParameters()"));
+    bytes4 internal constant MULTISEND_SELECTOR = 0x8d80ff0a;
+    bytes4 internal constant UPGRADE_TO_SELECTOR = 0x3659cfe6;
     bytes4 internal constant SET_PRICE_ORACLE_SELECTOR = 0x530e784f;
     string internal constant ORACLE_DOMAIN_NAME = "All US Land";
     bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
@@ -235,6 +248,36 @@ contract FabricaLendingPoolOracleRepointTest is Test {
             100 ether,
             "EOA-signed quote prices through pool.quote"
         );
+    }
+
+    function test_packetBuildsTwoLegUpgradeThenOracleRepoint() public {
+        address newImpl = makeAddr("new-impl");
+        address guardedOracle = makeAddr("guarded-oracle");
+        OracleRepointPacketHarness harness = new OracleRepointPacketHarness();
+
+        (bytes memory multiSendTransactions, bytes memory multiSendCall) =
+            harness.buildMultiSendCall(MAINNET_BEACON, MAINNET_POOL, newImpl, guardedOracle);
+
+        assertEq(bytes4(multiSendCall), MULTISEND_SELECTOR, "multisend selector");
+        bytes memory decodedTransactions = abi.decode(_slice(multiSendCall, 4, multiSendCall.length - 4), (bytes));
+        assertEq(decodedTransactions, multiSendTransactions, "wrapped tx bytes");
+
+        uint256 cursor;
+        address call1Target;
+        bytes memory call1Data;
+        (cursor, call1Target, call1Data) = _decodeMultiSendTx(multiSendTransactions, cursor);
+        assertEq(call1Target, MAINNET_BEACON, "call 1 target");
+        assertEq(bytes4(call1Data), UPGRADE_TO_SELECTOR, "call 1 selector");
+        assertEq(abi.decode(_slice(call1Data, 4, call1Data.length - 4), (address)), newImpl, "call 1 impl");
+
+        address call2Target;
+        bytes memory call2Data;
+        (cursor, call2Target, call2Data) = _decodeMultiSendTx(multiSendTransactions, cursor);
+        assertEq(call2Target, MAINNET_POOL, "call 2 target");
+        assertEq(bytes4(call2Data), SET_PRICE_ORACLE_SELECTOR, "call 2 selector");
+        assertEq(abi.decode(_slice(call2Data, 4, call2Data.length - 4), (address)), guardedOracle, "call 2 oracle");
+
+        assertEq(cursor, multiSendTransactions.length, "exactly two calls");
     }
 
     function test_mainnetFork_oracleOnlySelectorProbeStopsOnCurrentLiveImpl() public {
@@ -397,5 +440,31 @@ contract FabricaLendingPoolOracleRepointTest is Test {
     function _assertRevertSelector(bytes memory data, bytes4 selector) internal pure {
         assertEq(data.length, 4, "revert data length");
         assertEq(bytes4(data), selector, "revert selector");
+    }
+
+    function _decodeMultiSendTx(bytes memory transactions, uint256 cursor)
+        internal
+        pure
+        returns (uint256 nextCursor, address to, bytes memory data)
+    {
+        assertLt(cursor, transactions.length, "tx cursor in range");
+        assertEq(uint8(transactions[cursor]), 0, "call operation");
+        cursor += 1;
+        to = address(bytes20(_slice(transactions, cursor, 20)));
+        cursor += 20;
+        assertEq(uint256(bytes32(_slice(transactions, cursor, 32))), 0, "call value");
+        cursor += 32;
+        uint256 dataLength = uint256(bytes32(_slice(transactions, cursor, 32)));
+        cursor += 32;
+        data = _slice(transactions, cursor, dataLength);
+        nextCursor = cursor + dataLength;
+        assertLe(nextCursor, transactions.length, "tx length in range");
+    }
+
+    function _slice(bytes memory data, uint256 start, uint256 length) internal pure returns (bytes memory result) {
+        result = new bytes(length);
+        for (uint256 i; i < length; i++) {
+            result[i] = data[start + i];
+        }
     }
 }
