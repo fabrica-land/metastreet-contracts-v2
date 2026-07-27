@@ -100,11 +100,13 @@ must prepare calldata for review only and must not sign mainnet transactions.
 | **delegate.xyz V1 registry**            | `0x00000000000076A84feF008CDAbe6409d2FE638B` | Canonical (same on all chains)                 |
 | **delegate.xyz V2 registry**            | `0x00000000000000447e69651d841bD8D104Bed493` | Canonical (same on all chains)                 |
 
-ENG-3695 re-scopes the mainnet cutover to the ENG-3654 hardened oracle only.
-There is no beacon upgrade, no new pool implementation, and no liquidator
-replacement in the mainnet packet. The live pool remains on implementation
-version `2.15` with the legacy no-floor English auction liquidator at
-`0xa24DC4f04d1AC9B41dF0F7c2C772A9c0192D9C3B`.
+ENG-3695 removes the ENG-3655 reserve-floor liquidation redesign and uses a
+two-leg Safe packet for mainnet: upgrade the beacon to the reverted no-floor
+`2.16` implementation, then repoint the pool to the ENG-3654 hardened oracle.
+The new pool implementation must be linked against the newly deployed
+post-revert `BorrowLogic` library and constructed with the live legacy
+liquidator `0xa24DC4f04d1AC9B41dF0F7c2C772A9c0192D9C3B`. Do not deploy a new
+liquidator for this cutover.
 
 ## Upgrade Pattern
 
@@ -114,64 +116,92 @@ the beacon's implementation atomically upgrades every pool created
 against it. There is no per-pool upgrade; you upgrade the beacon and
 every BeaconProxy sees the new code on its next call.
 
-For ENG-3695 mainnet oracle repointing, the Safe sequence is a single call:
+For ENG-3695 mainnet oracle repointing, the Safe sequence is a single Safe
+transaction: a `DELEGATECALL` to `MultiSendCallOnly`
+`0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761` containing two `CALL` legs:
 
-1. `pool.setPriceOracle(guardedOracle)`
+1. `UpgradeableBeacon(0x30E9A2082E297a2E18615224A6146f6c73F7b7A6).upgradeTo(newRevertedImpl)`
+2. `Pool(0x221014c0b6871f3F0d57F262ae6B5b6CD2901456).setPriceOracle(guardedOracle)`
 
-The Safe transaction target is the live pool, operation is `CALL`, and value is
-zero. Do not use the beacon and do not wrap this in `MultiSendCallOnly` unless
-Tim/Fede explicitly add additional same-transaction actions later. A selector
-probe that reverts with empty data means the live pool implementation does not
-expose `setPriceOracle(address)`; stop and escalate instead of substituting a
-beacon upgrade.
+The `newRevertedImpl` is the ENG-3695 no-floor `WeightedRateERC1155CollectionPool`
+implementation. It keeps the ENG-3686 `setPriceOracle(address)` fallback
+dispatcher and ENG-3654 oracle hardening while routing liquidation to the live
+legacy no-reserve English auction selector. Construct it with:
+
+- `collateralLiquidator`: `0xa24DC4f04d1AC9B41dF0F7c2C772A9c0192D9C3B`
+- `delegateRegistryV1`: `0x00000000000076A84feF008CDAbe6409d2FE638B`
+- `delegateRegistryV2`: `0x00000000000000447e69651d841bD8D104Bed493`
+- `erc20DepositTokenImpl`: `0xa8920d5dc52eEDD33570FDbAC21d02b7e8EE9634`
+- `collateralWrappers`: `[0x05489aC114fBaaedeE4a49B67fCc5666C951E552]`
+- `liquidationGracePeriod`: `1296000`
+
+The packet script enforces `LiquidatorDrift` as a positive invariant: both the
+live pool and the new implementation must point at the live legacy liquidator.
 
 The hardened oracle must already be deployed, owned by the Fabrica Safe, have no
 pending ownership transfer, use `IMPLEMENTATION_VERSION() == "1.4"` and
-`DOMAIN_VERSION() == "1.2"`, and use an ERC-1271 signer contract for the live
-FabricaToken collateral collection. Before any Safe execution, configure token
-policies for the complete live token-ID list, enable the market with exactly
-that list, and confirm the reference-price refresh monitor runs comfortably
-inside the configured `maxReferenceAge` and the contract-level
-`MAX_REFERENCE_AGE` of 30 days.
+`DOMAIN_VERSION() == "1.2"`, and use EIP-712 domain name `"All US Land"` for
+live signing continuity. It must use an ERC-1271 signer contract for the live
+FabricaToken collateral collection. The live signer-contract workstream is
+Tim/Fede-gated; do not deploy the oracle or finalize the packet until that
+signer plan is confirmed.
+
+Before any Safe execution, configure token policies for the complete live token
+ID list, enable the market with exactly that list, and confirm the
+reference-price refresh monitor runs comfortably inside the configured
+`maxReferenceAge` and the contract-level `MAX_REFERENCE_AGE` of 30 days. The
+canonical live FabricaToken IDs are:
+
+`1585489599,2219685438,3170979198,4122272957,4756468797,5390664637,6341958396,7927447995`
 
 Generate the exact mainnet Safe calldata packet without broadcasting:
 
 ```bash
+export FABRICA_MAINNET_LENDING_BEACON=0x30E9A2082E297a2E18615224A6146f6c73F7b7A6
 export FABRICA_MAINNET_LENDING_POOL=0x221014c0b6871f3F0d57F262ae6B5b6CD2901456
 export FABRICA_MAINNET_LENDING_SAFE=0x769586A65825B028b005176F1ebbd3B82bB07Fb0
+export FABRICA_MAINNET_SAFE_MULTISEND_CALL_ONLY=0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761
+export FABRICA_MAINNET_LENDING_NEW_IMPL=<deployed reverted no-floor WeightedRateERC1155CollectionPool 2.16>
+export FABRICA_MAINNET_LENDING_NEW_IMPL_CODEHASH=<extcodehash of deployed reverted no-floor implementation>
 export FABRICA_MAINNET_GUARDED_PRICE_ORACLE=<deployed hardened SimpleSignedPriceOracle>
 export FABRICA_MAINNET_GUARDED_PRICE_ORACLE_CODEHASH=<extcodehash of deployed hardened SimpleSignedPriceOracle>
-export FABRICA_MAINNET_LIVE_TOKEN_IDS=<comma-separated complete live FabricaToken id list>
+export FABRICA_MAINNET_LIVE_TOKEN_IDS=1585489599,2219685438,3170979198,4122272957,4756468797,5390664637,6341958396,7927447995
 export FABRICA_MAINNET_REFERENCE_REFRESH_SLA_SECONDS=<monitor SLA, e.g. 604800 for 7 days>
 
 forge script script/FabricaLendingPoolMainnetOracleRepointPacket.s.sol:FabricaLendingPoolMainnetOracleRepointPacketScript \
   --rpc-url $MAINNET_RPC_URL
 ```
 
-The guarded-oracle codehash env value is a reviewed deployment input, not a
-free-form operator knob. Include the ENG-3654 deployment artifact/readback and
-`cast codehash <address>` for the hardened `SimpleSignedPriceOracle`
-deployment. If the oracle deployment model is a proxy, the packet script must
-be changed to validate the proxy implementation slot and implementation
-codehash before any Safe packet is emitted.
+The implementation and guarded-oracle codehash env values are reviewed
+deployment inputs, not free-form operator knobs. Include the ENG-3695 pool
+implementation deployment artifact/readback, the linked `BorrowLogic` library
+address, the ENG-3654 oracle deployment artifact/readback, and
+`cast codehash <address>` for both deployed contracts. If the oracle deployment
+model is a proxy, the packet script must be changed to validate the proxy
+implementation slot and implementation codehash before any Safe packet is
+emitted.
 
 The script is view-only. It validates the canonical mainnet pool, Safe,
-PoolFactory/admin owner, pool version, live collateral token, USDC, legacy
-liquidator, current weak oracle, guarded oracle codehash/domain/version/owner,
-signer contract code, enabled collateral policy, every supplied live token
-policy, and the reference-refresh SLA before printing the single Safe calldata
-leg. The accepted post-execution readback is:
+beacon owner, PoolFactory/admin owner, live prestate implementation and oracle,
+new implementation codehash/version/constructor immutables, live collateral
+token, USDC, legacy liquidator, guarded oracle codehash/domain/version/owner,
+signer contract code, enabled collateral policy, the exact complete live token
+ID list, every live token policy, and the reference-refresh SLA before printing
+the MultiSendCallOnly Safe calldata. The accepted post-execution readback is:
+`beacon.implementation() == newRevertedImpl`;
+`pool.IMPLEMENTATION_VERSION() == "2.16"`;
+`pool.collateralLiquidator() == 0xa24DC4f04d1AC9B41dF0F7c2C772A9c0192D9C3B`;
 `pool.priceOracle() == guardedOracle`; guarded oracle signer `.code.length > 0`;
 market enabled with the complete live token-ID list; monitored reference-price
-refresh SLA inside `maxReferenceAge`. Pool admin, implementation version, beacon
-implementation, liquidator, balances, and loan state must remain unchanged.
+refresh SLA inside `maxReferenceAge`. Pool admin, balances, and loan state must
+remain unchanged.
 
 ## Sepolia Beacon Upgrade Pattern
 
 The following sections document the historical/testnet beacon upgrade flow for
 Sepolia. They are not the ENG-3695 mainnet Safe cutover procedure. Mainnet
-execution is the Tim/Fede-reviewed oracle-only Safe call above; agents must not
-sign, broadcast, or execute it.
+execution is the Tim/Fede-reviewed two-leg MultiSendCallOnly packet above;
+agents must not sign, broadcast, or execute it.
 
 The upgrade is a single script (`FabricaLendingPoolUpgrade.s.sol`) that
 deploys the new implementation AND calls `beacon.upgradeTo(newImpl)` in

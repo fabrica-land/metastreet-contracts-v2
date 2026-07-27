@@ -435,8 +435,8 @@ interface IPool {
      * @notice Liquidate an expired loan
      *
      * Emits a {LoanLiquidated} event.
+     *
      * @param loanReceipt Loan receipt
      */
     function liquidate(bytes calldata loanReceipt) external;
-
 }

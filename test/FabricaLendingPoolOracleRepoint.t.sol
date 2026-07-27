@@ -109,7 +109,7 @@ contract FabricaLendingPoolOracleRepointTest is Test {
         0x49e2841d5b438889ec5febabe744cbf0a90f8edd53739991ca021b23a1357c70;
     bytes4 internal constant INVALID_PARAMETERS_SELECTOR = bytes4(keccak256("InvalidParameters()"));
     bytes4 internal constant SET_PRICE_ORACLE_SELECTOR = 0x530e784f;
-    string internal constant ORACLE_DOMAIN_NAME = "All Fabrica Properties";
+    string internal constant ORACLE_DOMAIN_NAME = "All US Land";
     bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 internal constant QUOTE_TYPEHASH = keccak256(
@@ -211,7 +211,10 @@ contract FabricaLendingPoolOracleRepointTest is Test {
 
     function test_mainnetFork_oracleOnlySelectorProbeStopsOnCurrentLiveImpl() public {
         string memory rpcUrl = vm.envOr("MAINNET_RPC_URL", string(""));
-        if (bytes(rpcUrl).length == 0) return;
+        if (bytes(rpcUrl).length == 0) {
+            emit log("MAINNET_RPC_URL not set; skipping live mainnet selector probe");
+            return;
+        }
 
         vm.createSelectFork(rpcUrl, MAINNET_FORK_BLOCK);
         assertGt(MAINNET_POOL.code.length, 0, "mainnet pool code required");
