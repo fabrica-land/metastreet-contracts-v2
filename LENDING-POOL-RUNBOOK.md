@@ -16,7 +16,7 @@ own UUPS upgrade runbook in the `fabrica-land/fabrica-v3-contracts` repo.)
 | **PoolFactory owner**                   | `0xBF03076547a99857b796717faF4034dea94569dF` |                                                |
 | **Pool (BeaconProxy)** — USDC + FabricaToken | `0x6C56d0953377D7AB479BBA85Da8d61050F774c0B` | The pool with live liquidity                   |
 | **ERC1155CollateralWrapper**            | `0xf6E3932F8b4ef957f3E361CECBF1489Ea93cb086` | Pool constructor immutable                     |
-| **EnglishAuctionCollateralLiquidator**  | `0xc780FEe561fc6E50493C496a53c62518971ba9EF` | Current pre-ENG-3655 liquidator; ENG-3655 cutover must deploy and use a new reserve-aware liquidator proxy |
+| **EnglishAuctionCollateralLiquidator**  | `0xc780FEe561fc6E50493C496a53c62518971ba9EF` | Pool constructor immutable                     |
 | **SimpleSignedPriceOracle**             | `0x522C7F01B535b36eca6b27C32A65Ee79e7c4df45` | Per-pool oracle, set via `initialize` params   |
 | **ERC20DepositTokenImplementation**     | `0x479c18dcEB406C88a0E05c86b9Ca02B6B043507B` | Pool constructor immutable                     |
 | **delegate.xyz V1 registry**            | `0x00000000000076A84feF008CDAbe6409d2FE638B` | Canonical (same on all chains)                 |
@@ -100,28 +100,11 @@ must prepare calldata for review only and must not sign mainnet transactions.
 | **delegate.xyz V1 registry**            | `0x00000000000076A84feF008CDAbe6409d2FE638B` | Canonical (same on all chains)                 |
 | **delegate.xyz V2 registry**            | `0x00000000000000447e69651d841bD8D104Bed493` | Canonical (same on all chains)                 |
 
-ENG-3686 adds a size-constrained `setPriceOracle(address)` selector shim to
-`WeightedRateERC1155CollectionPool` so the existing BeaconProxy can be
-upgraded and then repointed to the hardened `SimpleSignedPriceOracle`
-deployed from this fork. The pool is close to EIP-170, so the shim lives in
-`fallback()` and accepts only the canonical `setPriceOracle(address)` selector
-with 36-byte calldata; empty calldata and every other selector revert
-`InvalidParameters()`. The mainnet operation is a Safe packet reviewed by
-Tim/Fede before execution. Engineers may deploy inert
-implementations and produce calldata, but must not sign, broadcast, or execute
-mainnet Safe operations.
-
-Exact-head size evidence must stay attached to the PR because this pool is at
-the EIP-170 edge. On the ENG-3686 final board head, `script/check-pool-size.sh`
-reported `WeightedRateERC1155CollectionPool runtime=23992B (EIP-170 limit
-24576B, margin 584B)` after rebasing onto ENG-3655. The authoritative size
-gate is `script/check-pool-size.sh`, which runs a clean, scoped
-`forge build --sizes --json` over the deployable pool and sibling ecosystem
-that controls the viaIR compilation unit. An unrestricted
-`forge clean && forge build --sizes --json` is not the gate: it can report a
-larger `WeightedRateERC1155CollectionPool` artifact and exits nonzero because
-unrelated upstream weighted-rate variants remain oversized. The scoped script
-is the reproducible deployment-size check for the implementation target.
+ENG-3695 re-scopes the mainnet cutover to the ENG-3654 hardened oracle only.
+There is no beacon upgrade, no new pool implementation, and no liquidator
+replacement in the mainnet packet. The live pool remains on implementation
+version `2.15` with the legacy no-floor English auction liquidator at
+`0xa24DC4f04d1AC9B41dF0F7c2C772A9c0192D9C3B`.
 
 ## Upgrade Pattern
 
@@ -131,91 +114,64 @@ the beacon's implementation atomically upgrades every pool created
 against it. There is no per-pool upgrade; you upgrade the beacon and
 every BeaconProxy sees the new code on its next call.
 
-For ENG-3686 mainnet oracle repointing, the Safe sequence is two calls:
+For ENG-3695 mainnet oracle repointing, the Safe sequence is a single call:
 
-1. `UpgradeableBeacon.upgradeTo(newImpl)`
-2. `WeightedRateERC1155CollectionPool.setPriceOracle(guardedOracle)`
+1. `pool.setPriceOracle(guardedOracle)`
 
-The `setPriceOracle(address)` selector shim is callable only by the pool admin
-itself or `Ownable(pool.admin()).owner()`. For the Fabrica mainnet pool this
-makes the PoolFactory owner Safe the operational repoint authority. Any future
-factory owner change is therefore a pool oracle-security event and must be
-reviewed with the same weight as beacon ownership. If the admin `owner()`
-lookup fails or returns any other caller, the operation reverts with
-`InvalidPriceOracleUpdater()`. Candidate oracle addresses must be nonzero,
-must contain code, must differ from the current oracle, and must respond to a
-`price(address,address,uint256[],uint256[],bytes)` staticcall with either a
-32-byte return value or a typed revert from the candidate implementation. The
-oracle write uses the existing ERC-7201
-`externalPriceOracle.priceOracleStorage` slot and emits
-`PriceOracleUpdated(previousOracle, newOracle, caller)`.
+The Safe transaction target is the live pool, operation is `CALL`, and value is
+zero. Do not use the beacon and do not wrap this in `MultiSendCallOnly` unless
+Tim/Fede explicitly add additional same-transaction actions later. A selector
+probe that reverts with empty data means the live pool implementation does not
+expose `setPriceOracle(address)`; stop and escalate instead of substituting a
+beacon upgrade.
+
+The hardened oracle must already be deployed, owned by the Fabrica Safe, have no
+pending ownership transfer, use `IMPLEMENTATION_VERSION() == "1.4"` and
+`DOMAIN_VERSION() == "1.2"`, and use an ERC-1271 signer contract for the live
+FabricaToken collateral collection. Before any Safe execution, configure token
+policies for the complete live token-ID list, enable the market with exactly
+that list, and confirm the reference-price refresh monitor runs comfortably
+inside the configured `maxReferenceAge` and the contract-level
+`MAX_REFERENCE_AGE` of 30 days.
 
 Generate the exact mainnet Safe calldata packet without broadcasting:
 
 ```bash
-export FABRICA_MAINNET_LENDING_BEACON=0x30E9A2082E297a2E18615224A6146f6c73F7b7A6
 export FABRICA_MAINNET_LENDING_POOL=0x221014c0b6871f3F0d57F262ae6B5b6CD2901456
 export FABRICA_MAINNET_LENDING_SAFE=0x769586A65825B028b005176F1ebbd3B82bB07Fb0
-export FABRICA_MAINNET_SAFE_MULTISEND_CALL_ONLY=0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761
-export FABRICA_MAINNET_LENDING_NEW_IMPL=<deployed WeightedRateERC1155CollectionPool 2.16 implementation>
-export FABRICA_MAINNET_LENDING_NEW_IMPL_CODEHASH=<extcodehash of deployed 2.16 implementation>
 export FABRICA_MAINNET_GUARDED_PRICE_ORACLE=<deployed hardened SimpleSignedPriceOracle>
 export FABRICA_MAINNET_GUARDED_PRICE_ORACLE_CODEHASH=<extcodehash of deployed hardened SimpleSignedPriceOracle>
+export FABRICA_MAINNET_LIVE_TOKEN_IDS=<comma-separated complete live FabricaToken id list>
+export FABRICA_MAINNET_REFERENCE_REFRESH_SLA_SECONDS=<monitor SLA, e.g. 604800 for 7 days>
 
 forge script script/FabricaLendingPoolMainnetOracleRepointPacket.s.sol:FabricaLendingPoolMainnetOracleRepointPacketScript \
   --rpc-url $MAINNET_RPC_URL
 ```
 
-The hardened oracle is the direct, non-upgradeable `SimpleSignedPriceOracle`
-deployment from ENG-3654. It is not an ERC1967 proxy. The guarded-oracle
-codehash therefore pins the deployed oracle runtime itself. If the oracle
-deployment model ever changes to a proxy, this packet script is not sufficient:
-it must be changed to validate the proxy implementation slot and implementation
+The guarded-oracle codehash env value is a reviewed deployment input, not a
+free-form operator knob. Include the ENG-3654 deployment artifact/readback and
+`cast codehash <address>` for the hardened `SimpleSignedPriceOracle`
+deployment. If the oracle deployment model is a proxy, the packet script must
+be changed to validate the proxy implementation slot and implementation
 codehash before any Safe packet is emitted.
 
-The two codehash env values are reviewed deployment inputs, not free-form
-operator knobs. For the pool implementation, derive the expected codehash from
-the exact deployed `WeightedRateERC1155CollectionPool` 2.16 implementation
-address after library linking, and include the Forge artifact commit, linked
-library/broadcast metadata, deployed address, and `cast codehash <address>`
-readback in the Safe packet review. For the hardened oracle, include the
-ENG-3654 deployment artifact/readback and `cast codehash <address>` for the
-direct `SimpleSignedPriceOracle` deployment. Do not execute a Safe packet whose
-env codehashes are not backed by those reviewed artifacts.
-
-The script is view-only. It validates the env target addresses against the
-canonical mainnet beacon, pool, Safe, and PoolFactory/admin proxy listed above;
-then it validates beacon owner, factory owner, the canonical Safe
-MultiSendCallOnly address, nonzero code at both target addresses, exact
-operator-supplied codehashes for the new implementation and hardened oracle,
-the new implementation name/version, immutable dependency parity with the live
-pool, hardened oracle version/domain/owner, zero pending oracle ownership
-handoff, and non-no-op prestate before printing both individual calldata legs
-and the exact
-MultiSendCallOnly `multiSend(bytes)` calldata wrapping:
-
-1. `UpgradeableBeacon.upgradeTo(newImpl)`
-2. `WeightedRateERC1155CollectionPool.setPriceOracle(hardenedOracle)`
-
-Operators should execute the two calls atomically as a Safe `DELEGATECALL` to
-the canonical MultiSendCallOnly contract. A normal Safe `CALL` to
-MultiSendCallOnly is wrong: subcalls would originate from the helper contract,
-not the Safe, and owner/updater checks would fail. An upgrade-only partial
-resting state is not corrupting: the pool still points at the old oracle and
-remains in the pre-cutover risk posture. It is nevertheless incomplete and must
-not be treated as a finished mainnet-liquidity control. The accepted
-post-batch readback is:
-`beacon.implementation() == newImpl`,
-`pool.IMPLEMENTATION_VERSION() == "2.16"`, and
-`pool.priceOracle() == hardenedOracle`, with pool admin and balances/loan
-state unchanged.
+The script is view-only. It validates the canonical mainnet pool, Safe,
+PoolFactory/admin owner, pool version, live collateral token, USDC, legacy
+liquidator, current weak oracle, guarded oracle codehash/domain/version/owner,
+signer contract code, enabled collateral policy, every supplied live token
+policy, and the reference-refresh SLA before printing the single Safe calldata
+leg. The accepted post-execution readback is:
+`pool.priceOracle() == guardedOracle`; guarded oracle signer `.code.length > 0`;
+market enabled with the complete live token-ID list; monitored reference-price
+refresh SLA inside `maxReferenceAge`. Pool admin, implementation version, beacon
+implementation, liquidator, balances, and loan state must remain unchanged.
 
 ## Sepolia Beacon Upgrade Pattern
 
 The following sections document the historical/testnet beacon upgrade flow for
-Sepolia. They are not the ENG-3686 mainnet Safe cutover procedure. Mainnet
-execution for ENG-3686 is the Tim/Fede-reviewed Safe MultiSend packet above;
-agents must not sign, broadcast, or execute it.
+Sepolia. They are not the ENG-3695 mainnet Safe cutover procedure. Mainnet
+execution is the Tim/Fede-reviewed oracle-only Safe call above; agents must not
+sign, broadcast, or execute it.
 
 The upgrade is a single script (`FabricaLendingPoolUpgrade.s.sol`) that
 deploys the new implementation AND calls `beacon.upgradeTo(newImpl)` in
@@ -238,11 +194,9 @@ pool's runtime bytecode over EIP-170.
 cast call 0xe1b74cbf78a693E6289dC1c983D8bC2e5097139E 'owner()(address)' --rpc-url $SEPOLIA_RPC_URL
 cast call 0x110bD40421Bf418A8B0d8AbA6568fB020c42Ee83 'owner()(address)' --rpc-url $SEPOLIA_RPC_URL
 
-# Confirm the immutable args we'll bake into the new impl. ENG-3655
-# intentionally replaces collateralLiquidator with a newly deployed
-# reserve-aware EnglishAuctionCollateralLiquidator proxy configured for
-# the ERC1155 wrapper. Reusing the pre-ENG-3655 liquidator will make
-# reserve-aware liquidations fail after beacon cutover.
+# Confirm the immutable args we'll bake into the new impl match the
+# existing impl's. Any drift = the new impl will read wrong dependency
+# addresses post-upgrade.
 cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'collateralLiquidator()(address)' --rpc-url $SEPOLIA_RPC_URL
 cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'delegationRegistry()(address)' --rpc-url $SEPOLIA_RPC_URL
 cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'delegationRegistryV2()(address)' --rpc-url $SEPOLIA_RPC_URL
@@ -253,11 +207,6 @@ cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'collateralWrappers()(addre
 # (default 1728000 = 20 days); if you forget to export it, the upgrade silently
 # rebakes the grace window. Confirm the intended value against the live impl.
 cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'liquidationGracePeriod()(uint64)' --rpc-url $SEPOLIA_RPC_URL
-
-# ENG-3655 cutover gate: STOP unless operations has verified zero active
-# liquidations/auctions for every pool on this beacon. Old-liquidator
-# auctions can no longer finalize after the pool immutable points at the
-# new reserve-aware liquidator.
 ```
 
 ### 2. Run the upgrade
@@ -268,10 +217,7 @@ cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'liquidationGracePeriod()(u
 # and ETHERSCAN_API_KEY (for --verify).
 
 export FABRICA_LENDING_BEACON=0xe1b74cbf78a693E6289dC1c983D8bC2e5097139E
-# ENG-3655: replace this with the newly deployed reserve-aware
-# EnglishAuctionCollateralLiquidator proxy, not the pre-ENG-3655 address
-# listed in the network table.
-export FABRICA_LENDING_COLLATERAL_LIQUIDATOR=<NEW_RESERVE_AWARE_LIQUIDATOR_PROXY>
+export FABRICA_LENDING_COLLATERAL_LIQUIDATOR=0xc780FEe561fc6E50493C496a53c62518971ba9EF
 export FABRICA_LENDING_DELEGATE_REGISTRY_V1=0x00000000000076A84feF008CDAbe6409d2FE638B
 export FABRICA_LENDING_DELEGATE_REGISTRY_V2=0x00000000000000447e69651d841bD8D104Bed493
 export FABRICA_LENDING_ERC20_DEPOSIT_TOKEN_IMPL=0x479c18dcEB406C88a0E05c86b9Ca02B6B043507B

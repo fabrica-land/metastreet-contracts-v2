@@ -10,8 +10,7 @@ import "fabrica-lending-pools/tokenization/ERC20DepositToken.sol";
  *
  * Stubs:
  *   - Permissive collateral filter (any token + id supported).
- *   - Trivial positive oracle (tick limits resolve to absolute values, while
- *     reserve-aware liquidation has a nonzero test reserve).
+ *   - Trivial positive oracle (tick limits resolve to absolute values).
  *   - Trivial interest rate model: repayment = principal, adminFee = 0.
  *     This keeps the repay/liquidate math obvious in tests without compromising
  *     the access-control / time-gate surface under test.

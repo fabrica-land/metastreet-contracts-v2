@@ -3,21 +3,12 @@ pragma solidity ^0.8.13;
 
 import {Script, console} from "forge-std/Script.sol";
 
-interface IMainnetBeacon {
-    function implementation() external view returns (address);
-    function owner() external view returns (address);
-}
-
 interface IMainnetPool {
-    function IMPLEMENTATION_NAME() external view returns (string memory);
     function IMPLEMENTATION_VERSION() external view returns (string memory);
     function admin() external view returns (address);
     function collateralLiquidator() external view returns (address);
-    function collateralWrappers() external view returns (address[] memory);
-    function delegationRegistry() external view returns (address);
-    function delegationRegistryV2() external view returns (address);
-    function getERC20DepositTokenImplementation() external view returns (address);
-    function liquidationGracePeriod() external view returns (uint64);
+    function collateralToken() external view returns (address);
+    function currencyToken() external view returns (address);
     function priceOracle() external view returns (address);
 }
 
@@ -26,6 +17,24 @@ interface IMainnetOwnable {
 }
 
 interface IHardenedSimpleSignedPriceOracle {
+    struct CollateralPolicy {
+        address currencyToken;
+        uint64 maxQuoteAge;
+        uint64 maxDuration;
+        uint64 maxReferenceAge;
+        uint64 enabledGeneration;
+        bool enabled;
+        bool configured;
+    }
+
+    struct TokenPolicy {
+        uint256 maxPrice;
+        uint256 referencePrice;
+        uint64 referenceUpdatedAt;
+        uint16 maxDeviationBps;
+        bool configured;
+    }
+
     function DOMAIN_VERSION() external view returns (string memory);
     function IMPLEMENTATION_VERSION() external view returns (string memory);
     function eip712Domain()
@@ -42,34 +51,27 @@ interface IHardenedSimpleSignedPriceOracle {
         );
     function owner() external view returns (address);
     function pendingOwner() external view returns (address);
+    function priceOracleSigner(address collateralToken) external view returns (address);
+    function collateralPolicy(address collateralToken) external view returns (CollateralPolicy memory);
+    function tokenPolicy(address collateralToken, uint256 tokenId) external view returns (TokenPolicy memory);
 }
 
 error EnvAddressZero(string name);
 error EnvBytes32Zero(string name);
-error UnexpectedBeacon();
+error EnvUintZero(string name);
+error LiveTokenIdsRequired();
 error UnexpectedPool();
 error UnexpectedSafe();
 error UnexpectedPoolAdmin();
-error UnexpectedBeaconOwner();
 error UnexpectedPoolAdminOwner();
-error UnexpectedMultiSendCallOnly();
-error MissingMultiSendCallOnlyCode();
-error MissingNewImplementationCode();
+error UnexpectedPoolVersion();
+error UnexpectedCollateralToken();
+error UnexpectedCurrencyToken();
+error UnexpectedLiveLiquidator();
 error MissingGuardedOracleCode();
-error UnexpectedNewImplementationCodehash();
 error UnexpectedGuardedOracleCodehash();
-error UnexpectedCurrentImplementation();
 error UnexpectedCurrentOracle();
-error NoOpBeaconUpgrade();
 error NoOpOracleRepoint();
-error UnexpectedImplementationName();
-error BadImplementationVersion();
-error WrapperDrift();
-error LiquidatorDrift();
-error RegistryV1Drift();
-error RegistryV2Drift();
-error DepositTokenImplementationDrift();
-error GracePeriodDrift();
 error BadOracleVersion();
 error BadOracleDomain();
 error BadOracleDomainName();
@@ -77,149 +79,149 @@ error BadOracleDomainChain();
 error BadOracleDomainVerifier();
 error UnexpectedOracleOwner();
 error UnexpectedOraclePendingOwner();
+error MissingSignerContract();
+error BadCollateralPolicy();
+error BadTokenPolicy(uint256 tokenId);
+error ReferenceStale(uint256 tokenId);
+error ReferenceRefreshSlaTooLoose();
 
 /**
  * @title Fabrica mainnet lending pool oracle repoint Safe packet
- * @notice Dry-run only. Prints calldata for operator-reviewed Safe execution:
- *         1. beacon.upgradeTo(newImpl)
- *         2. pool.setPriceOracle(guardedOracle)
- *         plus the exact Safe MultiSendCallOnly payload wrapping both calls.
+ * @notice Dry-run only. Prints calldata for a single operator-reviewed Safe
+ *         CALL: pool.setPriceOracle(guardedOracle). No beacon upgrade, new pool
+ *         implementation, or liquidator replacement is prepared here.
  */
 contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
-    bytes1 private constant CALL_OPERATION = 0x00;
-    bytes4 private constant MULTISEND_SELECTOR = 0x8d80ff0a;
-    bytes4 private constant UPGRADE_TO_SELECTOR = 0x3659cfe6;
     bytes4 private constant SET_PRICE_ORACLE_SELECTOR = 0x530e784f;
-    address private constant CANONICAL_MAINNET_LENDING_BEACON = 0x30E9A2082E297a2E18615224A6146f6c73F7b7A6;
+    uint64 private constant MAX_REFERENCE_AGE = 30 days;
+
     address private constant CANONICAL_MAINNET_LENDING_POOL = 0x221014c0b6871f3F0d57F262ae6B5b6CD2901456;
     address private constant CANONICAL_MAINNET_LENDING_SAFE = 0x769586A65825B028b005176F1ebbd3B82bB07Fb0;
     address private constant CANONICAL_MAINNET_POOL_ADMIN = 0x759991Bf617BAc3728983bF03Fb4d744C51F2A4F;
-    address private constant CANONICAL_MAINNET_CURRENT_IMPL = 0x623Ce6d9B158D007fD1E79e5a58B177aB9b51d78;
     address private constant CANONICAL_MAINNET_WEAK_ORACLE = 0x3ed9E25AeBCd16860c4030692D47E0B116Ae04A5;
-    address private constant CANONICAL_MAINNET_DEPOSIT_TOKEN_IMPL = 0xa8920d5dc52eEDD33570FDbAC21d02b7e8EE9634;
-    address private constant CANONICAL_SAFE_MULTISEND_CALL_ONLY = 0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761;
+    address private constant CANONICAL_MAINNET_COLLATERAL_TOKEN = 0x5cbeb7A0df7Ed85D82a472FD56d81ed550f3Ea95;
+    address private constant CANONICAL_MAINNET_CURRENCY_TOKEN = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+    address private constant CANONICAL_MAINNET_LIQUIDATOR = 0xa24DC4f04d1AC9B41dF0F7c2C772A9c0192D9C3B;
     string private constant CANONICAL_ORACLE_DOMAIN_NAME = "All Fabrica Properties";
 
     function setUp() public {}
 
     function run() public view {
-        address beacon = _requireEnvAddress("FABRICA_MAINNET_LENDING_BEACON");
         address pool = _requireEnvAddress("FABRICA_MAINNET_LENDING_POOL");
         address expectedSafe = _requireEnvAddress("FABRICA_MAINNET_LENDING_SAFE");
-        address multiSendCallOnly = _requireEnvAddress("FABRICA_MAINNET_SAFE_MULTISEND_CALL_ONLY");
-        address newImpl = _requireEnvAddress("FABRICA_MAINNET_LENDING_NEW_IMPL");
         address guardedOracle = _requireEnvAddress("FABRICA_MAINNET_GUARDED_PRICE_ORACLE");
-        bytes32 expectedNewImplCodehash = _requireEnvBytes32("FABRICA_MAINNET_LENDING_NEW_IMPL_CODEHASH");
         bytes32 expectedGuardedOracleCodehash = _requireEnvBytes32("FABRICA_MAINNET_GUARDED_PRICE_ORACLE_CODEHASH");
-        if (beacon != CANONICAL_MAINNET_LENDING_BEACON) revert UnexpectedBeacon();
+        uint256[] memory liveTokenIds = vm.envUint("FABRICA_MAINNET_LIVE_TOKEN_IDS", ",");
+        uint256 referenceRefreshSla = _requireEnvUint("FABRICA_MAINNET_REFERENCE_REFRESH_SLA_SECONDS");
+
+        _validatePoolPrestate(pool, expectedSafe, guardedOracle);
+        _validateGuardedOracle(
+            guardedOracle,
+            expectedGuardedOracleCodehash,
+            expectedSafe,
+            IMainnetPool(pool).collateralToken(),
+            IMainnetPool(pool).currencyToken(),
+            liveTokenIds,
+            referenceRefreshSla
+        );
+
+        bytes memory repointCall = abi.encodeWithSelector(SET_PRICE_ORACLE_SELECTOR, guardedOracle);
+
+        console.log("=== ENG-3695 mainnet oracle-only Safe packet dry-run ===");
+        console.log("Safe:                  ", expectedSafe);
+        console.log("Call target:           ", pool);
+        console.log("Operation:             CALL");
+        console.log("Value:                 0");
+        console.log("Current price oracle:  ", IMainnetPool(pool).priceOracle());
+        console.log("Guarded price oracle:  ", guardedOracle);
+        console.log("Live liquidator kept:  ", IMainnetPool(pool).collateralLiquidator());
+        console.log("Calldata:");
+        console.logBytes(repointCall);
+        console.log("Required postconditions after Safe execution:");
+        console.log("- pool.priceOracle() == guarded price oracle");
+        console.log("- guarded oracle signer has code");
+        console.log("- guarded oracle market remains enabled for the complete live token-ID list");
+        console.log("- monitored reference-price refresh SLA remains inside maxReferenceAge");
+    }
+
+    function _validatePoolPrestate(address pool, address expectedSafe, address guardedOracle) private view {
         if (pool != CANONICAL_MAINNET_LENDING_POOL) revert UnexpectedPool();
         if (expectedSafe != CANONICAL_MAINNET_LENDING_SAFE) revert UnexpectedSafe();
-        if (multiSendCallOnly != CANONICAL_SAFE_MULTISEND_CALL_ONLY) revert UnexpectedMultiSendCallOnly();
-        address beaconOwner = IMainnetBeacon(beacon).owner();
-        address poolAdmin = IMainnetPool(pool).admin();
+
+        IMainnetPool livePool = IMainnetPool(pool);
+        address poolAdmin = livePool.admin();
         address poolAdminOwner = IMainnetOwnable(poolAdmin).owner();
-        address currentImpl = IMainnetBeacon(beacon).implementation();
-        address currentOracle = IMainnetPool(pool).priceOracle();
+        address currentOracle = livePool.priceOracle();
+
         if (poolAdmin != CANONICAL_MAINNET_POOL_ADMIN) revert UnexpectedPoolAdmin();
-        if (beaconOwner != expectedSafe) revert UnexpectedBeaconOwner();
         if (poolAdminOwner != expectedSafe) revert UnexpectedPoolAdminOwner();
-        if (multiSendCallOnly.code.length == 0) revert MissingMultiSendCallOnlyCode();
-        if (newImpl.code.length == 0) revert MissingNewImplementationCode();
-        if (guardedOracle.code.length == 0) revert MissingGuardedOracleCode();
-        if (newImpl.codehash != expectedNewImplCodehash) revert UnexpectedNewImplementationCodehash();
-        if (guardedOracle.codehash != expectedGuardedOracleCodehash) revert UnexpectedGuardedOracleCodehash();
-        if (currentImpl != CANONICAL_MAINNET_CURRENT_IMPL) revert UnexpectedCurrentImplementation();
+        if (keccak256(bytes(livePool.IMPLEMENTATION_VERSION())) != keccak256(bytes("2.15"))) {
+            revert UnexpectedPoolVersion();
+        }
+        if (livePool.collateralToken() != CANONICAL_MAINNET_COLLATERAL_TOKEN) revert UnexpectedCollateralToken();
+        if (livePool.currencyToken() != CANONICAL_MAINNET_CURRENCY_TOKEN) revert UnexpectedCurrencyToken();
+        if (livePool.collateralLiquidator() != CANONICAL_MAINNET_LIQUIDATOR) revert UnexpectedLiveLiquidator();
         if (currentOracle != CANONICAL_MAINNET_WEAK_ORACLE) revert UnexpectedCurrentOracle();
-        if (newImpl == currentImpl) revert NoOpBeaconUpgrade();
         if (guardedOracle == currentOracle) revert NoOpOracleRepoint();
-        if (
-            keccak256(bytes(IMainnetPool(newImpl).IMPLEMENTATION_NAME()))
-                != keccak256(bytes("WeightedRateERC1155CollectionPool"))
-        ) revert UnexpectedImplementationName();
-        if (keccak256(bytes(IMainnetPool(newImpl).IMPLEMENTATION_VERSION())) != keccak256(bytes("2.16"))) {
-            revert BadImplementationVersion();
-        }
-        if (!_sameAddressArray(IMainnetPool(newImpl).collateralWrappers(), IMainnetPool(pool).collateralWrappers())) {
-            revert WrapperDrift();
-        }
-        if (IMainnetPool(newImpl).collateralLiquidator() != IMainnetPool(pool).collateralLiquidator()) {
-            revert LiquidatorDrift();
-        }
-        if (IMainnetPool(newImpl).delegationRegistry() != IMainnetPool(pool).delegationRegistry()) {
-            revert RegistryV1Drift();
-        }
-        if (IMainnetPool(newImpl).delegationRegistryV2() != IMainnetPool(pool).delegationRegistryV2()) {
-            revert RegistryV2Drift();
-        }
-        if (
-            IMainnetPool(newImpl).getERC20DepositTokenImplementation() != CANONICAL_MAINNET_DEPOSIT_TOKEN_IMPL
-                || IMainnetPool(pool).getERC20DepositTokenImplementation() != CANONICAL_MAINNET_DEPOSIT_TOKEN_IMPL
-        ) {
-            revert DepositTokenImplementationDrift();
-        }
-        if (IMainnetPool(newImpl).liquidationGracePeriod() != IMainnetPool(pool).liquidationGracePeriod()) {
-            revert GracePeriodDrift();
-        }
+    }
+
+    function _validateGuardedOracle(
+        address guardedOracle,
+        bytes32 expectedCodehash,
+        address expectedSafe,
+        address collateralToken,
+        address currencyToken,
+        uint256[] memory liveTokenIds,
+        uint256 referenceRefreshSla
+    ) private view {
+        if (guardedOracle.code.length == 0) revert MissingGuardedOracleCode();
+        if (guardedOracle.codehash != expectedCodehash) revert UnexpectedGuardedOracleCodehash();
+        if (liveTokenIds.length == 0) revert LiveTokenIdsRequired();
+
+        IHardenedSimpleSignedPriceOracle oracle = IHardenedSimpleSignedPriceOracle(guardedOracle);
         (
             ,
             string memory oracleDomainName,
             string memory oracleDomainVersion,
             uint256 oracleDomainChainId,
             address oracleDomainVerifier,,
-        ) = IHardenedSimpleSignedPriceOracle(guardedOracle).eip712Domain();
-        if (
-            keccak256(bytes(IHardenedSimpleSignedPriceOracle(guardedOracle).IMPLEMENTATION_VERSION()))
-                != keccak256(bytes("1.4"))
-        ) revert BadOracleVersion();
-        if (
-            keccak256(bytes(IHardenedSimpleSignedPriceOracle(guardedOracle).DOMAIN_VERSION()))
-                != keccak256(bytes("1.2"))
-        ) {
-            revert BadOracleDomain();
-        }
+        ) = oracle.eip712Domain();
+
+        if (keccak256(bytes(oracle.IMPLEMENTATION_VERSION())) != keccak256(bytes("1.4"))) revert BadOracleVersion();
+        if (keccak256(bytes(oracle.DOMAIN_VERSION())) != keccak256(bytes("1.2"))) revert BadOracleDomain();
         if (keccak256(bytes(oracleDomainName)) != keccak256(bytes(CANONICAL_ORACLE_DOMAIN_NAME))) {
             revert BadOracleDomainName();
         }
         if (keccak256(bytes(oracleDomainVersion)) != keccak256(bytes("1.2"))) revert BadOracleDomain();
         if (oracleDomainChainId != block.chainid) revert BadOracleDomainChain();
         if (oracleDomainVerifier != guardedOracle) revert BadOracleDomainVerifier();
-        if (IHardenedSimpleSignedPriceOracle(guardedOracle).owner() != expectedSafe) revert UnexpectedOracleOwner();
-        if (IHardenedSimpleSignedPriceOracle(guardedOracle).pendingOwner() != address(0)) {
-            revert UnexpectedOraclePendingOwner();
+        if (oracle.owner() != expectedSafe) revert UnexpectedOracleOwner();
+        if (oracle.pendingOwner() != address(0)) revert UnexpectedOraclePendingOwner();
+
+        address signer = oracle.priceOracleSigner(collateralToken);
+        if (signer.code.length == 0) revert MissingSignerContract();
+
+        IHardenedSimpleSignedPriceOracle.CollateralPolicy memory policy = oracle.collateralPolicy(collateralToken);
+        if (
+            !policy.configured || !policy.enabled || policy.currencyToken != currencyToken
+                || policy.maxReferenceAge == 0 || policy.maxReferenceAge > MAX_REFERENCE_AGE
+        ) revert BadCollateralPolicy();
+        if (referenceRefreshSla == 0 || referenceRefreshSla > policy.maxReferenceAge / 2) {
+            revert ReferenceRefreshSlaTooLoose();
         }
-        bytes memory upgradeCall = abi.encodeWithSelector(UPGRADE_TO_SELECTOR, newImpl);
-        bytes memory repointCall = abi.encodeWithSelector(SET_PRICE_ORACLE_SELECTOR, guardedOracle);
-        bytes memory multiSendTransactions =
-            bytes.concat(_multiSendTx(beacon, upgradeCall), _multiSendTx(pool, repointCall));
-        bytes memory multiSendCall = abi.encodeWithSelector(MULTISEND_SELECTOR, multiSendTransactions);
-        console.log("=== ENG-3686 Safe packet dry-run ===");
-        console.log("Beacon owner Safe:         ", expectedSafe);
-        console.log("MultiSendCallOnly:         ", multiSendCallOnly);
-        console.log("Beacon:                    ", beacon);
-        console.log("Pool:                      ", pool);
-        console.log("Current implementation:    ", currentImpl);
-        console.log("New implementation:        ", newImpl);
-        console.log("Current price oracle:      ", currentOracle);
-        console.log("Guarded price oracle:      ", guardedOracle);
-        console.log("Post-upgrade pool version: ", IMainnetPool(newImpl).IMPLEMENTATION_VERSION());
-        console.log("Call 1 target:             ", beacon);
-        console.logBytes(upgradeCall);
-        console.log("Call 2 target:             ", pool);
-        console.logBytes(repointCall);
-        console.log("MultiSendCallOnly target:  ", multiSendCallOnly);
-        console.log("Safe operation:            DELEGATECALL to MultiSendCallOnly");
-        console.log("MultiSendCallOnly calldata:");
-        console.logBytes(multiSendCall);
-        console.log("Encoded CallOnly transaction bytes:");
-        console.logBytes(multiSendTransactions);
-        console.log("Required postconditions:");
-        console.log("- beacon.implementation() == new implementation");
-        console.log("- pool.IMPLEMENTATION_VERSION() == 2.16");
-        console.log("- pool.priceOracle() == guarded price oracle");
-        console.log("- pool admin and balances/loan state unchanged");
-        console.log(
-            "- partial upgrade-only resting state is safe but incomplete: pool remains on the old oracle until call 2"
-        );
+
+        for (uint256 i; i < liveTokenIds.length; i++) {
+            IHardenedSimpleSignedPriceOracle.TokenPolicy memory tokenPolicy =
+                oracle.tokenPolicy(collateralToken, liveTokenIds[i]);
+            if (
+                !tokenPolicy.configured || tokenPolicy.maxPrice == 0 || tokenPolicy.referencePrice == 0
+                    || tokenPolicy.referencePrice > tokenPolicy.maxPrice || tokenPolicy.referenceUpdatedAt == 0
+                    || tokenPolicy.referenceUpdatedAt > block.timestamp
+            ) revert BadTokenPolicy(liveTokenIds[i]);
+            if (block.timestamp - tokenPolicy.referenceUpdatedAt > policy.maxReferenceAge) {
+                revert ReferenceStale(liveTokenIds[i]);
+            }
+        }
     }
 
     function _requireEnvAddress(string memory name) private view returns (address addr) {
@@ -232,15 +234,8 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         if (value == bytes32(0)) revert EnvBytes32Zero(name);
     }
 
-    function _multiSendTx(address to, bytes memory data) private pure returns (bytes memory) {
-        return abi.encodePacked(CALL_OPERATION, to, uint256(0), data.length, data);
-    }
-
-    function _sameAddressArray(address[] memory a, address[] memory b) private pure returns (bool) {
-        if (a.length != b.length) return false;
-        for (uint256 i; i < a.length; i++) {
-            if (a[i] != b[i]) return false;
-        }
-        return true;
+    function _requireEnvUint(string memory name) private view returns (uint256 value) {
+        value = vm.envUint(name);
+        if (value == 0) revert EnvUintZero(name);
     }
 }
