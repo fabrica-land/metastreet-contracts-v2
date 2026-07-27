@@ -140,11 +140,6 @@ contract SimpleSignedPriceOracle is Ownable2Step, EIP712, IPriceOracle {
     error TokenIdsRequired();
 
     /**
-     * @notice Signer must be a contract
-     */
-    error InvalidSignerContract();
-
-    /**
      * @notice Ownership renounce disabled
      */
     error OwnershipRenounceDisabled();
@@ -226,7 +221,7 @@ contract SimpleSignedPriceOracle is Ownable2Step, EIP712, IPriceOracle {
     /**
      * @notice Quote with signature
      * @param quote Quote
-     * @param signature Signature payload validated by the configured ERC-1271 signer
+     * @param signature Signature payload validated by the configured signer
      */
     struct SignedQuote {
         Quote quote;
@@ -359,10 +354,7 @@ contract SimpleSignedPriceOracle is Ownable2Step, EIP712, IPriceOracle {
 
         /* Validate signer */
         address signerAddress = _priceOracleSigners[collateralToken];
-        if (
-            signerAddress.code.length == 0
-                || !SignatureChecker.isValidERC1271SignatureNow(signerAddress, _quoteDigest(quote), signedQuote.signature)
-        ) {
+        if (!SignatureChecker.isValidSignatureNow(signerAddress, _quoteDigest(quote), signedQuote.signature)) {
             revert InvalidConfiguredSigner();
         }
 
@@ -493,7 +485,7 @@ contract SimpleSignedPriceOracle is Ownable2Step, EIP712, IPriceOracle {
      * @return Price oracle implementation version
      */
     function IMPLEMENTATION_VERSION() public pure returns (string memory) {
-        return "1.4";
+        return "1.5";
     }
 
     /**
@@ -592,7 +584,6 @@ contract SimpleSignedPriceOracle is Ownable2Step, EIP712, IPriceOracle {
      */
     function setSigner(address collateralToken, address signer) external onlyOwner {
         if (collateralToken == address(0) || signer == address(0)) revert ZeroAddress();
-        if (signer.code.length == 0) revert InvalidSignerContract();
         _priceOracleSigners[collateralToken] = signer;
 
         emit SignerUpdated(collateralToken, signer);

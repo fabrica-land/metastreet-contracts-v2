@@ -79,7 +79,7 @@ contract SimpleSignedPriceOracleGuardedTest is Test {
 
     function test_versionsAndOriginalDomainArePreservedForNewDeploy() public view {
         assertEq(oracle.owner(), address(this));
-        assertEq(oracle.IMPLEMENTATION_VERSION(), "1.4");
+        assertEq(oracle.IMPLEMENTATION_VERSION(), "1.5");
         assertEq(oracle.DOMAIN_VERSION(), "1.2");
     }
 
@@ -235,21 +235,43 @@ contract SimpleSignedPriceOracleGuardedTest is Test {
         oracle.price(collateralToken, currencyToken, _ids(1), _quantities(1), abi.encode(quotes));
     }
 
-    function test_revert_eoaSignerStorageFailsClosed() public {
-        TestableSimpleSignedPriceOracle fresh = new TestableSimpleSignedPriceOracle(NAME);
+    function test_price_validEoaQuotePasses() public {
         uint256 signerPrivateKey = 0xA11CE;
         address eoaSigner = vm.addr(signerPrivateKey);
-        fresh.setCollateralPolicy(collateralToken, currencyToken, 120, 300, 30 days);
-        fresh.setTokenPolicy(collateralToken, 1, 1_000_000, 500_000, uint64(block.timestamp), 10_000);
-        fresh.unsafeSetSignerForTest(collateralToken, eoaSigner);
-        fresh.setCollateralEnabled(collateralToken, true, _ids(1));
+        oracle.setSigner(collateralToken, eoaSigner);
         SimpleSignedPriceOracle.Quote memory quote = _quote(1, 100_000, uint64(block.timestamp), 60);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, _digestFor(address(fresh), quote));
-        bytes memory signature = abi.encodePacked(r, s, v);
         SimpleSignedPriceOracle.SignedQuote[] memory quotes = new SimpleSignedPriceOracle.SignedQuote[](1);
-        quotes[0] = SimpleSignedPriceOracle.SignedQuote(quote, signature);
-        vm.expectRevert(SimpleSignedPriceOracle.InvalidConfiguredSigner.selector);
-        fresh.price(collateralToken, currencyToken, _ids(1), _quantities(1), abi.encode(quotes));
+        quotes[0] = SimpleSignedPriceOracle.SignedQuote(quote, _eoaSignature(signerPrivateKey, address(oracle), quote));
+        assertEq(oracle.price(collateralToken, currencyToken, _ids(1), _quantities(1), abi.encode(quotes)), 100_000);
+    }
+
+    function test_eoaSignerStillEnforcesCapDeviationAndFreshnessGuards() public {
+        uint256 signerPrivateKey = 0xA11CE;
+        address eoaSigner = vm.addr(signerPrivateKey);
+        oracle.setSigner(collateralToken, eoaSigner);
+
+        SimpleSignedPriceOracle.SignedQuote[] memory quotes = new SimpleSignedPriceOracle.SignedQuote[](1);
+        SimpleSignedPriceOracle.Quote memory capQuote = _quote(1, 1_000_001, uint64(block.timestamp), 60);
+        quotes[0] =
+            SimpleSignedPriceOracle.SignedQuote(capQuote, _eoaSignature(signerPrivateKey, address(oracle), capQuote));
+        vm.expectRevert(SimpleSignedPriceOracle.QuotePriceExceedsCap.selector);
+        oracle.price(collateralToken, currencyToken, _ids(1), _quantities(1), abi.encode(quotes));
+
+        _configureToken(1, 1_000_000, 500_000, uint64(block.timestamp), 1_000);
+        _enable(1);
+        SimpleSignedPriceOracle.Quote memory deviationQuote = _quote(1, 600_001, uint64(block.timestamp), 60);
+        quotes[0] = SimpleSignedPriceOracle.SignedQuote(
+            deviationQuote, _eoaSignature(signerPrivateKey, address(oracle), deviationQuote)
+        );
+        vm.expectRevert(SimpleSignedPriceOracle.QuoteDeviationTooHigh.selector);
+        oracle.price(collateralToken, currencyToken, _ids(1), _quantities(1), abi.encode(quotes));
+
+        SimpleSignedPriceOracle.Quote memory staleQuote = _quote(1, 500_000, uint64(block.timestamp - 121), 300);
+        quotes[0] = SimpleSignedPriceOracle.SignedQuote(
+            staleQuote, _eoaSignature(signerPrivateKey, address(oracle), staleQuote)
+        );
+        vm.expectRevert(SimpleSignedPriceOracle.QuoteStale.selector);
+        oracle.price(collateralToken, currencyToken, _ids(1), _quantities(1), abi.encode(quotes));
     }
 
     function test_revert_invalidSignerWhenErc1271Reverts() public {
@@ -328,7 +350,6 @@ contract SimpleSignedPriceOracleGuardedTest is Test {
         oracle.setSigner(address(0), signer);
         vm.expectRevert(SimpleSignedPriceOracle.ZeroAddress.selector);
         oracle.setSigner(collateralToken, address(0));
-        vm.expectRevert(SimpleSignedPriceOracle.InvalidSignerContract.selector);
         oracle.setSigner(collateralToken, makeAddr("eoa"));
         vm.expectRevert(SimpleSignedPriceOracle.ZeroAddress.selector);
         oracle.setCollateralPolicy(address(0), currencyToken, 120, 300, 30 days);
@@ -492,6 +513,15 @@ contract SimpleSignedPriceOracleGuardedTest is Test {
         );
         signerContract.setValidSignature(_digest(quote), signature, true);
         return SimpleSignedPriceOracle.SignedQuote(quote, signature);
+    }
+
+    function _eoaSignature(uint256 privateKey, address verifyingContract, SimpleSignedPriceOracle.Quote memory quote)
+        internal
+        view
+        returns (bytes memory)
+    {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, _digestFor(verifyingContract, quote));
+        return abi.encodePacked(r, s, v);
     }
 
     function _digest(SimpleSignedPriceOracle.Quote memory quote) internal view returns (bytes32) {

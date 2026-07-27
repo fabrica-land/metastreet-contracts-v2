@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 
+import {Pool} from "fabrica-lending-pools/Pool.sol";
 import {PoolFactory} from "fabrica-lending-pools/PoolFactory.sol";
 import {IPriceOracle} from "fabrica-lending-pools/interfaces/IPriceOracle.sol";
 import {ExternalPriceOracle} from "fabrica-lending-pools/oracle/ExternalPriceOracle.sol";
@@ -17,6 +18,7 @@ import {
 import {ERC1155CollateralWrapper} from "fabrica-lending-pools/wrappers/ERC1155CollateralWrapper.sol";
 
 import "./concretes/MockCollateralLiquidator.sol";
+import "./concretes/TestERC20.sol";
 
 interface IOracleRepoint {
     function setPriceOracle(address newOracle) external;
@@ -29,6 +31,7 @@ interface ILiveUpgradeableBeacon {
 interface ILivePool {
     function IMPLEMENTATION_VERSION() external view returns (string memory);
     function admin() external view returns (address);
+    function currencyToken() external view returns (address);
     function priceOracle() external view returns (address);
     function price(
         address collateralToken,
@@ -116,6 +119,7 @@ contract FabricaLendingPoolOracleRepointTest is Test {
         "Quote(address token,uint256 tokenId,address currency,uint256 price,uint64 timestamp,uint64 duration)"
     );
     uint256 internal constant MAINNET_FORK_BLOCK = 25_597_121;
+    uint128 internal constant TICK = uint128(uint256(1000 ether) << 8);
 
     event PriceOracleUpdated(address indexed previousOracle, address indexed newOracle, address indexed caller);
 
@@ -209,6 +213,30 @@ contract FabricaLendingPoolOracleRepointTest is Test {
         assertEq(_poolPrice(), 200, "replacement price");
     }
 
+    function test_poolQuoteRoundTripsWithEoaSignedOracle() public {
+        uint256 signerPrivateKey = 0xA11CE;
+        TestERC20 currency = new TestERC20("Test USDC", "tUSDC", 18);
+        (SimpleSignedPriceOracle oracle, bytes memory quoteContext) = _deployConfiguredSimpleSignedOracleWithSigner(
+            300_000, address(currency), vm.addr(signerPrivateKey), signerPrivateKey
+        );
+
+        pool = factory.createProxied(address(beacon), _poolParams(address(oracle), address(currency)));
+        currency.mint(address(this), 1_000 ether);
+        currency.approve(pool, type(uint256).max);
+        WeightedRateERC1155CollectionPool(payable(pool)).deposit(TICK, 1_000 ether, 1);
+
+        uint128[] memory ticks = new uint128[](1);
+        ticks[0] = TICK;
+        bytes memory options = _borrowOption(Pool.BorrowOptions.OracleContext, quoteContext);
+
+        assertGt(
+            WeightedRateERC1155CollectionPool(payable(pool))
+                .quote(100 ether, 30 days, DUMMY_COLLATERAL_TOKEN, 1, ticks, options),
+            100 ether,
+            "EOA-signed quote prices through pool.quote"
+        );
+    }
+
     function test_mainnetFork_oracleOnlySelectorProbeStopsOnCurrentLiveImpl() public {
         string memory rpcUrl = vm.envOr("MAINNET_RPC_URL", string(""));
         if (bytes(rpcUrl).length == 0) {
@@ -285,14 +313,45 @@ contract FabricaLendingPoolOracleRepointTest is Test {
         quoteContext = abi.encode(quotes);
     }
 
+    function _deployConfiguredSimpleSignedOracleWithSigner(
+        uint256 quotePrice,
+        address currencyToken_,
+        address signer,
+        uint256 signerPrivateKey
+    ) internal returns (SimpleSignedPriceOracle oracle, bytes memory quoteContext) {
+        oracle = new SimpleSignedPriceOracle(ORACLE_DOMAIN_NAME);
+        oracle.setSigner(DUMMY_COLLATERAL_TOKEN, signer);
+        oracle.setCollateralPolicy(DUMMY_COLLATERAL_TOKEN, currencyToken_, 120, 300, 30 days);
+        oracle.setTokenPolicy(DUMMY_COLLATERAL_TOKEN, 1, 1_000_000, 500_000, uint64(block.timestamp), 10_000);
+        uint256[] memory liveTokenIds = new uint256[](1);
+        liveTokenIds[0] = 1;
+        oracle.setCollateralEnabled(DUMMY_COLLATERAL_TOKEN, true, liveTokenIds);
+
+        SimpleSignedPriceOracle.Quote memory quote = SimpleSignedPriceOracle.Quote(
+            DUMMY_COLLATERAL_TOKEN, 1, currencyToken_, quotePrice, uint64(block.timestamp), 60
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, _quoteDigest(oracle, quote));
+        SimpleSignedPriceOracle.SignedQuote[] memory quotes = new SimpleSignedPriceOracle.SignedQuote[](1);
+        quotes[0] = SimpleSignedPriceOracle.SignedQuote(quote, abi.encodePacked(r, s, v));
+        quoteContext = abi.encode(quotes);
+    }
+
+    function _borrowOption(Pool.BorrowOptions tag, bytes memory data) internal pure returns (bytes memory) {
+        return abi.encodePacked(uint16(uint256(tag)), uint16(data.length), data);
+    }
+
     function _poolParams(address priceOracle) internal returns (bytes memory) {
+        return _poolParams(priceOracle, address(new TestERC20("Test USDC", "tUSDC", 18)));
+    }
+
+    function _poolParams(address priceOracle, address currencyToken_) internal pure returns (bytes memory) {
         address[] memory collateralTokens = new address[](1);
-        collateralTokens[0] = makeAddr("collateralToken");
+        collateralTokens[0] = DUMMY_COLLATERAL_TOKEN;
         uint64[] memory durations = new uint64[](1);
         durations[0] = 30 days;
         uint64[] memory rates = new uint64[](1);
         rates[0] = 1;
-        return abi.encode(collateralTokens, address(new MockERC20Metadata()), priceOracle, durations, rates);
+        return abi.encode(collateralTokens, currencyToken_, priceOracle, durations, rates);
     }
 
     function _poolPrice() internal view returns (uint256) {

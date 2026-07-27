@@ -90,9 +90,7 @@ contract FabricaLendingPoolStackDeployScript is Script {
             (auctionDuration, auctionExtWindow, auctionExt, auctionMinBidBps)
         );
         ERC1967Proxy liquidatorProxy = new ERC1967Proxy(address(liquidatorImpl), liquidatorInit);
-        SimpleSignedPriceOracle oracleImpl = new SimpleSignedPriceOracle(oracleName);
-        bytes memory oracleInit = abi.encodeCall(SimpleSignedPriceOracle.initialize, (owner));
-        ERC1967Proxy oracleProxy = new ERC1967Proxy(address(oracleImpl), oracleInit);
+        SimpleSignedPriceOracle oracle = new SimpleSignedPriceOracle(oracleName);
         PoolFactory factoryImpl = new PoolFactory();
         bytes memory factoryInit = abi.encodeWithSelector(PoolFactory.initialize.selector);
         ERC1967Proxy factoryProxy = new ERC1967Proxy(address(factoryImpl), factoryInit);
@@ -113,8 +111,7 @@ contract FabricaLendingPoolStackDeployScript is Script {
         console.log("ERC1155CollateralWrapper:           ", address(wrapper));
         console.log("EnglishAuctionLiquidator impl:      ", address(liquidatorImpl));
         console.log("EnglishAuctionLiquidator (proxy):   ", address(liquidatorProxy));
-        console.log("SimpleSignedPriceOracle impl:       ", address(oracleImpl));
-        console.log("SimpleSignedPriceOracle (proxy):    ", address(oracleProxy));
+        console.log("SimpleSignedPriceOracle (direct):   ", address(oracle));
         console.log("PoolFactory impl:                   ", address(factoryImpl));
         console.log("PoolFactory (proxy):                ", address(factoryProxy));
         console.log("WeightedRateERC1155CollectionPool impl:", address(poolImpl));

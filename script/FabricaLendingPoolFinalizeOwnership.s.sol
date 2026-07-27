@@ -88,8 +88,10 @@ interface IPoolOracleBinding {
  *   FABRICA_LENDING_BEACON                  UpgradeableBeacon address
  *   FABRICA_LENDING_POOL_IMPL               WeightedRateERC1155CollectionPool implementation address
  *   FABRICA_LENDING_POOL                    BeaconProxy pool address using this oracle
- *   FABRICA_LENDING_ORACLE                  SimpleSignedPriceOracle proxy address
- *   FABRICA_LENDING_ORACLE_IMPL             SimpleSignedPriceOracle implementation address
+ *   FABRICA_LENDING_ORACLE                  SimpleSignedPriceOracle address
+ *   FABRICA_LENDING_ORACLE_IMPL             SimpleSignedPriceOracle implementation address;
+ *                                           for direct deployments, set equal to
+ *                                           FABRICA_LENDING_ORACLE
  *   FABRICA_LENDING_ORACLE_DOMAIN_NAME      SimpleSignedPriceOracle EIP-712 domain name
  *   FABRICA_LENDING_EXPECTED_CURRENT_OWNER  broadcaster/deployer that currently owns all three roles
  *   FABRICA_LENDING_FINAL_OWNER             canonical Fabrica Safe
@@ -101,7 +103,7 @@ interface IPoolOracleBinding {
  *
  * SimpleSignedPriceOracle uses Ownable2Step, so this script only starts that
  * handoff. The Safe must subsequently execute `acceptOwnership()` on the
- * oracle proxy. This script deliberately does not attempt to impersonate or
+ * oracle. This script deliberately does not attempt to impersonate or
  * replace that Safe acceptance.
  */
 contract FabricaLendingPoolFinalizeOwnershipScript is Script {
@@ -161,7 +163,7 @@ contract FabricaLendingPoolFinalizeOwnershipScript is Script {
         console.log("Factory proxy:", factory);
         console.log("Beacon:", beacon);
         console.log("Pool:", pool);
-        console.log("Oracle proxy:", oracle);
+        console.log("Oracle:", oracle);
         console.log("Current owner:", expectedCurrentOwner);
         console.log("Final Safe owner:", finalOwner);
         console.log("Safe oracle acceptOwnership calldata:");
@@ -247,7 +249,11 @@ contract FabricaLendingPoolFinalizeOwnershipScript is Script {
 
     function _validateOracle(address oracle, address oracleImpl, string memory oracleDomainName) internal view {
         address actualOracleImpl = address(uint160(uint256(vm.load(oracle, ERC1967_IMPLEMENTATION_SLOT))));
-        if (actualOracleImpl != oracleImpl) revert UnexpectedOracleImplementation(actualOracleImpl, oracleImpl);
+        if (actualOracleImpl == address(0)) {
+            if (oracleImpl != oracle) revert UnexpectedOracleImplementation(actualOracleImpl, oracleImpl);
+        } else if (actualOracleImpl != oracleImpl) {
+            revert UnexpectedOracleImplementation(actualOracleImpl, oracleImpl);
+        }
         (
             string memory domainName,
             string memory eip712DomainVersion,

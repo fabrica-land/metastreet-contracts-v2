@@ -138,13 +138,16 @@ legacy no-reserve English auction selector. Construct it with:
 The packet script enforces `LiquidatorDrift` as a positive invariant: both the
 live pool and the new implementation must point at the live legacy liquidator.
 
-The hardened oracle must already be deployed, owned by the Fabrica Safe, have no
-pending ownership transfer, use `IMPLEMENTATION_VERSION() == "1.4"` and
+The hardened oracle must be deployed directly as `SimpleSignedPriceOracle`, not
+behind an ERC1967 proxy. Do not use the current stack-deploy script for the
+mainnet oracle unless it is first changed to stop wrapping the oracle in a
+proxy. The oracle must be owned by the Fabrica Safe, have no pending ownership
+transfer, use `IMPLEMENTATION_VERSION() == "1.5"` and
 `DOMAIN_VERSION() == "1.2"`, and use EIP-712 domain name `"All US Land"` for
-live signing continuity. It must use an ERC-1271 signer contract for the live
-FabricaToken collateral collection. The live signer-contract workstream is
-Tim/Fede-gated; do not deploy the oracle or finalize the packet until that
-signer plan is confirmed.
+live signing continuity. Direct deploy means the deployer starts as owner;
+`transferOwnership(Safe)` and Safe `acceptOwnership()` must complete before the
+packet's owner/pending-owner assertions pass. The live signer is the pinned EOA
+`0xC888F5e3DD4fBEB37F6e1BA6fA68c83Ab0Cf7b2c`.
 
 Before any Safe execution, configure token policies for the complete live token
 ID list, enable the market with exactly that list, and confirm the
@@ -184,14 +187,15 @@ emitted.
 The script is view-only. It validates the canonical mainnet pool, Safe,
 beacon owner, PoolFactory/admin owner, live prestate implementation and oracle,
 new implementation codehash/version/constructor immutables, live collateral
-token, USDC, legacy liquidator, guarded oracle codehash/domain/version/owner,
-signer contract code, enabled collateral policy, the exact complete live token
+token, USDC, legacy liquidator, guarded oracle direct-deploy/codehash/domain/version/owner,
+pinned EOA signer, enabled collateral policy, the exact complete live token
 ID list, every live token policy, and the reference-refresh SLA before printing
 the MultiSendCallOnly Safe calldata. The accepted post-execution readback is:
 `beacon.implementation() == newRevertedImpl`;
 `pool.IMPLEMENTATION_VERSION() == "2.16"`;
 `pool.collateralLiquidator() == 0xa24DC4f04d1AC9B41dF0F7c2C772A9c0192D9C3B`;
-`pool.priceOracle() == guardedOracle`; guarded oracle signer `.code.length > 0`;
+`pool.priceOracle() == guardedOracle`;
+`guardedOracle.priceOracleSigner(FabricaToken) == 0xC888F5e3DD4fBEB37F6e1BA6fA68c83Ab0Cf7b2c`;
 market enabled with the complete live token-ID list; monitored reference-price
 refresh SLA inside `maxReferenceAge`. Pool admin, balances, and loan state must
 remain unchanged.

@@ -81,6 +81,7 @@ error UnexpectedMultiSendCallOnly();
 error MissingMultiSendCallOnlyCode();
 error MissingNewImplementationCode();
 error MissingGuardedOracleCode();
+error GuardedOracleMustBeDirect();
 error UnexpectedNewImplementationCodehash();
 error UnexpectedGuardedOracleCodehash();
 error UnexpectedCurrentImplementation();
@@ -105,7 +106,7 @@ error BadOracleDomainChain();
 error BadOracleDomainVerifier();
 error UnexpectedOracleOwner();
 error UnexpectedOraclePendingOwner();
-error MissingSignerContract();
+error UnexpectedOracleSigner();
 error BadCollateralPolicy();
 error BadTokenPolicy(uint256 tokenId);
 error ReferenceStale(uint256 tokenId);
@@ -140,6 +141,9 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
     address private constant CANONICAL_MAINNET_COLLATERAL_WRAPPER = 0x05489aC114fBaaedeE4a49B67fCc5666C951E552;
     address private constant CANONICAL_SAFE_MULTISEND_CALL_ONLY = 0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761;
     uint64 private constant CANONICAL_MAINNET_LIQUIDATION_GRACE_PERIOD = 15 days;
+    address private constant CANONICAL_MAINNET_ORACLE_SIGNER = 0xC888f5e3Dd4FBeB37f6e1bA6FA68c83aB0cf7B2c;
+    bytes32 private constant ERC1967_IMPLEMENTATION_SLOT =
+        0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
     string private constant CANONICAL_ORACLE_DOMAIN_NAME = "All US Land";
 
     function setUp() public {}
@@ -201,7 +205,7 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         console.log("- pool.IMPLEMENTATION_VERSION() == 2.16");
         console.log("- pool.collateralLiquidator() == live legacy liquidator");
         console.log("- pool.priceOracle() == guarded price oracle");
-        console.log("- guarded oracle signer has code");
+        console.log("- guarded oracle signer == expected EOA");
         console.log("- guarded oracle market remains enabled for the complete live token-ID list");
         console.log("- monitored reference-price refresh SLA remains inside maxReferenceAge");
     }
@@ -283,6 +287,7 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         uint256 referenceRefreshSla
     ) private view {
         if (guardedOracle.code.length == 0) revert MissingGuardedOracleCode();
+        if (vm.load(guardedOracle, ERC1967_IMPLEMENTATION_SLOT) != bytes32(0)) revert GuardedOracleMustBeDirect();
         if (guardedOracle.codehash != expectedCodehash) revert UnexpectedGuardedOracleCodehash();
         if (!_isCanonicalLiveTokenIdList(liveTokenIds)) revert UnexpectedLiveTokenIds();
 
@@ -295,7 +300,7 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
             address oracleDomainVerifier,,
         ) = oracle.eip712Domain();
 
-        if (keccak256(bytes(oracle.IMPLEMENTATION_VERSION())) != keccak256(bytes("1.4"))) revert BadOracleVersion();
+        if (keccak256(bytes(oracle.IMPLEMENTATION_VERSION())) != keccak256(bytes("1.5"))) revert BadOracleVersion();
         if (keccak256(bytes(oracle.DOMAIN_VERSION())) != keccak256(bytes("1.2"))) revert BadOracleDomain();
         if (keccak256(bytes(oracleDomainName)) != keccak256(bytes(CANONICAL_ORACLE_DOMAIN_NAME))) {
             revert BadOracleDomainName();
@@ -307,7 +312,7 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         if (oracle.pendingOwner() != address(0)) revert UnexpectedOraclePendingOwner();
 
         address signer = oracle.priceOracleSigner(collateralToken);
-        if (signer.code.length == 0) revert MissingSignerContract();
+        if (signer != CANONICAL_MAINNET_ORACLE_SIGNER) revert UnexpectedOracleSigner();
 
         IHardenedSimpleSignedPriceOracle.CollateralPolicy memory policy = oracle.collateralPolicy(collateralToken);
         if (
