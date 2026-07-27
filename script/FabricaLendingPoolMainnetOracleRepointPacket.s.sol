@@ -21,6 +21,7 @@ interface IMainnetPool {
     function getERC20DepositTokenImplementation() external view returns (address);
     function liquidationGracePeriod() external view returns (uint64);
     function priceOracle() external view returns (address);
+    function rates() external view returns (uint64[] memory);
 }
 
 interface IMainnetOwnable {
@@ -65,12 +66,22 @@ interface IHardenedSimpleSignedPriceOracle {
     function priceOracleSigner(address collateralToken) external view returns (address);
     function collateralPolicy(address collateralToken) external view returns (CollateralPolicy memory);
     function tokenPolicy(address collateralToken, uint256 tokenId) external view returns (TokenPolicy memory);
+    function tokenPolicyGeneration(address collateralToken, uint256 tokenId) external view returns (uint64);
 }
 
 error EnvAddressZero(string name);
 error EnvBytes32Zero(string name);
 error EnvUintZero(string name);
-error UnexpectedLiveTokenIds();
+error TokenIdsEmpty();
+error TokenIdsNotStrictlyAscending();
+error CollateralGenerationZero();
+error TokenGenerationMismatch(uint256 tokenId);
+error TokenIdCollidesWithRate(uint256 tokenId);
+error PolicyValueLengthMismatch();
+error UnexpectedTokenMaxPrice(uint256 tokenId);
+error UnexpectedTokenReferencePrice(uint256 tokenId);
+error MissingLinkedLibraryCode(address library_);
+error UnexpectedLinkedLibraryCodehash(address library_);
 error UnexpectedBeacon();
 error UnexpectedPool();
 error UnexpectedSafe();
@@ -160,8 +171,11 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         bytes32 expectedGuardedOracleCodehash = _requireEnvBytes32("FABRICA_MAINNET_GUARDED_PRICE_ORACLE_CODEHASH");
         uint256[] memory liveTokenIds = vm.envUint("FABRICA_MAINNET_LIVE_TOKEN_IDS", ",");
         uint256 referenceRefreshSla = _requireEnvUint("FABRICA_MAINNET_REFERENCE_REFRESH_SLA_SECONDS");
+        uint256[] memory expectedMaxPrices = vm.envUint("FABRICA_MAINNET_TOKEN_MAX_PRICES", ",");
+        uint256[] memory expectedReferencePrices = vm.envUint("FABRICA_MAINNET_TOKEN_REFERENCE_PRICES", ",");
 
         _validatePoolAndImplementationPrestate(beacon, pool, expectedSafe, multiSendCallOnly, newImpl, guardedOracle);
+        _validateLinkedLibraries();
         _validateGuardedOracle(
             guardedOracle,
             expectedGuardedOracleCodehash,
@@ -169,7 +183,10 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
             IMainnetPool(pool).collateralToken(),
             IMainnetPool(pool).currencyToken(),
             liveTokenIds,
-            referenceRefreshSla
+            referenceRefreshSla,
+            IMainnetPool(pool).rates(),
+            expectedMaxPrices,
+            expectedReferencePrices
         );
 
         if (newImpl.codehash != expectedNewImplCodehash) revert UnexpectedNewImplementationCodehash();
@@ -200,6 +217,10 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         console.logBytes(multiSendCall);
         console.log("Encoded CallOnly transaction bytes:");
         console.logBytes(multiSendTransactions);
+        console.log("Enabled collateral token-ID count:", liveTokenIds.length);
+        for (uint256 i; i < liveTokenIds.length; i++) {
+            console.log("  enabled collateral token ID:", liveTokenIds[i]);
+        }
         console.log("Required postconditions after Safe execution:");
         console.log("- beacon.implementation() == new no-floor implementation");
         console.log("- pool.IMPLEMENTATION_VERSION() == 2.16");
@@ -255,7 +276,14 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
             revert BadImplementationVersion();
         }
         address[] memory wrappers = newImpl.collateralWrappers();
-        if (wrappers.length != 1 || wrappers[0] != CANONICAL_MAINNET_COLLATERAL_WRAPPER) revert WrapperDrift();
+        // Pool.collateralWrappers() ALWAYS returns a fixed length-3, zero-padded array
+        // ([_collateralWrapper1, _collateralWrapper2, _collateralWrapper3]); it can never
+        // return length 1. Pin the exact live shape: the one live ERC1155 wrapper in slot 0
+        // and the remaining two slots empty.
+        if (
+            wrappers.length != 3 || wrappers[0] != CANONICAL_MAINNET_COLLATERAL_WRAPPER || wrappers[1] != address(0)
+                || wrappers[2] != address(0)
+        ) revert WrapperDrift();
         if (!_sameAddressArray(wrappers, livePool.collateralWrappers())) revert WrapperDrift();
         if (newImpl.collateralLiquidator() != CANONICAL_MAINNET_LIQUIDATOR) revert LiquidatorDrift();
         if (livePool.collateralLiquidator() != CANONICAL_MAINNET_LIQUIDATOR) revert LiquidatorDrift();
@@ -277,6 +305,35 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         }
     }
 
+    // The pool implementation embeds its four external libraries' ADDRESSES, not their
+    // code; the impl-codehash pin therefore does NOT cover the libraries, yet they are
+    // delegatecalled into pool storage and are as trust-critical as the pool. Pin the
+    // deployed code of each linked library (BorrowLogic, DepositLogic, LiquidityLogic,
+    // ERC20DepositTokenFactory) by reviewed address + codehash.
+    function _validateLinkedLibraries() private view {
+        _validateLinkedLibrary(
+            _requireEnvAddress("FABRICA_MAINNET_LENDING_BORROWLOGIC"),
+            _requireEnvBytes32("FABRICA_MAINNET_LENDING_BORROWLOGIC_CODEHASH")
+        );
+        _validateLinkedLibrary(
+            _requireEnvAddress("FABRICA_MAINNET_LENDING_DEPOSITLOGIC"),
+            _requireEnvBytes32("FABRICA_MAINNET_LENDING_DEPOSITLOGIC_CODEHASH")
+        );
+        _validateLinkedLibrary(
+            _requireEnvAddress("FABRICA_MAINNET_LENDING_LIQUIDITYLOGIC"),
+            _requireEnvBytes32("FABRICA_MAINNET_LENDING_LIQUIDITYLOGIC_CODEHASH")
+        );
+        _validateLinkedLibrary(
+            _requireEnvAddress("FABRICA_MAINNET_LENDING_ERC20DEPOSITTOKENFACTORY"),
+            _requireEnvBytes32("FABRICA_MAINNET_LENDING_ERC20DEPOSITTOKENFACTORY_CODEHASH")
+        );
+    }
+
+    function _validateLinkedLibrary(address library_, bytes32 expectedCodehash) private view {
+        if (library_.code.length == 0) revert MissingLinkedLibraryCode(library_);
+        if (library_.codehash != expectedCodehash) revert UnexpectedLinkedLibraryCodehash(library_);
+    }
+
     function _validateGuardedOracle(
         address guardedOracle,
         bytes32 expectedCodehash,
@@ -284,13 +341,22 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
         address collateralToken,
         address currencyToken,
         uint256[] memory liveTokenIds,
-        uint256 referenceRefreshSla
+        uint256 referenceRefreshSla,
+        uint64[] memory poolRates,
+        uint256[] memory expectedMaxPrices,
+        uint256[] memory expectedReferencePrices
     ) private view {
         if (guardedOracle.code.length == 0) revert MissingGuardedOracleCode();
         if (vm.load(guardedOracle, ERC1967_IMPLEMENTATION_SLOT) != bytes32(0)) revert GuardedOracleMustBeDirect();
         if (vm.load(guardedOracle, ERC1967_BEACON_SLOT) != bytes32(0)) revert GuardedOracleMustBeDirect();
         if (guardedOracle.codehash != expectedCodehash) revert UnexpectedGuardedOracleCodehash();
-        if (!_isCanonicalLiveTokenIdList(liveTokenIds)) revert UnexpectedLiveTokenIds();
+        if (liveTokenIds.length == 0) revert TokenIdsEmpty();
+        // Expected per-token appraisals (Fede's reviewed values) must be supplied 1:1 with
+        // the enabled token IDs so the Safe reviews that the config is CORRECT, not merely
+        // well-formed.
+        if (expectedMaxPrices.length != liveTokenIds.length || expectedReferencePrices.length != liveTokenIds.length) {
+            revert PolicyValueLengthMismatch();
+        }
 
         IHardenedSimpleSignedPriceOracle oracle = IHardenedSimpleSignedPriceOracle(guardedOracle);
         (
@@ -301,7 +367,7 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
             address oracleDomainVerifier,,
         ) = oracle.eip712Domain();
 
-        if (keccak256(bytes(oracle.IMPLEMENTATION_VERSION())) != keccak256(bytes("1.5"))) revert BadOracleVersion();
+        if (keccak256(bytes(oracle.IMPLEMENTATION_VERSION())) != keccak256(bytes("1.6"))) revert BadOracleVersion();
         if (keccak256(bytes(oracle.DOMAIN_VERSION())) != keccak256(bytes("1.2"))) revert BadOracleDomain();
         if (keccak256(bytes(oracleDomainName)) != keccak256(bytes(CANONICAL_ORACLE_DOMAIN_NAME))) {
             revert BadOracleDomainName();
@@ -320,20 +386,47 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
             !policy.configured || !policy.enabled || policy.currencyToken != currencyToken
                 || policy.maxReferenceAge == 0 || policy.maxReferenceAge > MAX_REFERENCE_AGE
         ) revert BadCollateralPolicy();
+        // Zero-edge guard (load-bearing, do NOT remove): the enabled generation and an
+        // unstamped token's generation both default to 0, so a never-enabled market would
+        // make every per-token `generation == enabledGeneration` check below a silent
+        // no-op. Assert a real (post-enable) generation explicitly, independent of the
+        // positional `!policy.enabled` check above.
+        if (policy.enabledGeneration == 0) revert CollateralGenerationZero();
         if (referenceRefreshSla == 0 || referenceRefreshSla > policy.maxReferenceAge / 2) {
             revert ReferenceRefreshSlaTooLoose();
         }
 
         for (uint256 i; i < liveTokenIds.length; i++) {
+            uint256 tokenId = liveTokenIds[i];
+            // Strictly ascending => sorted, no duplicates, and legible to Safe reviewers.
+            if (i != 0 && tokenId <= liveTokenIds[i - 1]) revert TokenIdsNotStrictlyAscending();
+            // Canary: an enabled collateral token ID must never equal a pool interest-rate
+            // tier. The pool's rate tiers were once mislabeled as "live token IDs"; this
+            // makes that class of confusion fail closed forever.
+            for (uint256 j; j < poolRates.length; j++) {
+                if (tokenId == uint256(poolRates[j])) revert TokenIdCollidesWithRate(tokenId);
+            }
             IHardenedSimpleSignedPriceOracle.TokenPolicy memory tokenPolicy =
-                oracle.tokenPolicy(collateralToken, liveTokenIds[i]);
+                oracle.tokenPolicy(collateralToken, tokenId);
             if (
                 !tokenPolicy.configured || tokenPolicy.maxPrice == 0 || tokenPolicy.referencePrice == 0
                     || tokenPolicy.referencePrice > tokenPolicy.maxPrice || tokenPolicy.referenceUpdatedAt == 0
                     || tokenPolicy.referenceUpdatedAt > block.timestamp
-            ) revert BadTokenPolicy(liveTokenIds[i]);
+            ) revert BadTokenPolicy(tokenId);
+            // Value pins: the on-chain hard cap + reference price must equal Fede's reviewed
+            // appraisals for this token (the same numbers configured on the oracle).
+            if (tokenPolicy.maxPrice != expectedMaxPrices[i]) revert UnexpectedTokenMaxPrice(tokenId);
+            if (tokenPolicy.referencePrice != expectedReferencePrices[i]) {
+                revert UnexpectedTokenReferencePrice(tokenId);
+            }
             if (block.timestamp - tokenPolicy.referenceUpdatedAt > policy.maxReferenceAge) {
-                revert ReferenceStale(liveTokenIds[i]);
+                revert ReferenceStale(tokenId);
+            }
+            // Generation stamp is what price() actually enforces (TokenNotEnabled on
+            // mismatch, SimpleSignedPriceOracle._verifyQuote). enabledGeneration != 0 is
+            // asserted above, so a never-enabled market cannot slip through this equality.
+            if (oracle.tokenPolicyGeneration(collateralToken, tokenId) != policy.enabledGeneration) {
+                revert TokenGenerationMismatch(tokenId);
             }
         }
     }
@@ -374,12 +467,5 @@ contract FabricaLendingPoolMainnetOracleRepointPacketScript is Script {
             if (a[i] != b[i]) return false;
         }
         return true;
-    }
-
-    function _isCanonicalLiveTokenIdList(uint256[] memory tokenIds) private pure returns (bool) {
-        if (tokenIds.length != 8) return false;
-        return tokenIds[0] == 1_585_489_599 && tokenIds[1] == 2_219_685_438 && tokenIds[2] == 3_170_979_198
-            && tokenIds[3] == 4_122_272_957 && tokenIds[4] == 4_756_468_797 && tokenIds[5] == 5_390_664_637
-            && tokenIds[6] == 6_341_958_396 && tokenIds[7] == 7_927_447_995;
     }
 }

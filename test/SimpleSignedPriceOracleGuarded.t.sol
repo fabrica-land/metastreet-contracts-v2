@@ -79,8 +79,29 @@ contract SimpleSignedPriceOracleGuardedTest is Test {
 
     function test_versionsAndOriginalDomainArePreservedForNewDeploy() public view {
         assertEq(oracle.owner(), address(this));
-        assertEq(oracle.IMPLEMENTATION_VERSION(), "1.5");
+        // Bumped 1.5 -> 1.6 when tokenPolicyGeneration() was added; DOMAIN_VERSION unchanged.
+        assertEq(oracle.IMPLEMENTATION_VERSION(), "1.6");
         assertEq(oracle.DOMAIN_VERSION(), "1.2");
+    }
+
+    function test_tokenPolicyGeneration_exposesEnableGate() public {
+        // Token 1 was enabled in setUp: stamped to the collateral's current enabledGeneration.
+        uint64 gen = oracle.collateralPolicy(collateralToken).enabledGeneration;
+        assertEq(gen, 1, "enabledGeneration after first enable");
+        assertEq(oracle.tokenPolicyGeneration(collateralToken, 1), gen, "enabled token stamped to current generation");
+        // A never-configured token reads generation 0.
+        assertEq(oracle.tokenPolicyGeneration(collateralToken, 999), 0, "unknown token generation 0");
+        // A configured-but-not-enabled token stays generation 0 (price() would reject it).
+        _configureToken(2, 1_000_000, 500_000, uint64(block.timestamp), 10_000);
+        assertEq(oracle.tokenPolicyGeneration(collateralToken, 2), 0, "configured-but-unstamped generation 0");
+        // Re-enabling [1, 2] bumps the generation and restamps both.
+        uint256[] memory ids = new uint256[](2);
+        ids[0] = 1;
+        ids[1] = 2;
+        _enableMany(ids);
+        assertEq(oracle.collateralPolicy(collateralToken).enabledGeneration, 2, "enabledGeneration bumps on re-enable");
+        assertEq(oracle.tokenPolicyGeneration(collateralToken, 1), 2, "token1 restamped");
+        assertEq(oracle.tokenPolicyGeneration(collateralToken, 2), 2, "token2 stamped");
     }
 
     function test_price_validErc1271QuotesReturnWeightedAverage() public {

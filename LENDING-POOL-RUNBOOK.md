@@ -45,9 +45,13 @@ ENG-3654 hardens `SimpleSignedPriceOracle` fail-closed. A pool is not
 borrow-ready after only `setSigner`; operators must configure all policy
 layers, then explicitly enable the collateral market.
 
-1. Configure the signer with an ERC-1271 contract, normally the custody Safe
-   or a threshold signer controlled by that Safe. EOA signer addresses are
-   rejected.
+1. Configure the signer. `SimpleSignedPriceOracle` verifies quotes with
+   `SignatureChecker.isValidSignatureNow`, so the signer may be **either** an
+   EOA (ECDSA) **or** an ERC-1271 contract (e.g. the custody Safe or a
+   Safe-controlled threshold signer). The live mainnet signer is the EOA
+   `0xC888f5e3Dd4FBeB37f6e1bA6FA68c83aB0cf7b2c`. (Historical note: an earlier
+   draft of this runbook said EOA signers are rejected — that was never the
+   contract's behavior and is corrected here.)
 2. Configure the collateral policy with the accepted currency token,
    max quote age, max quote duration, and max reference age. The contract
    enforces a hard 30 day upper bound for max reference age.
@@ -58,8 +62,8 @@ layers, then explicitly enable the collateral market.
    and fresh; empty lists and partial configuration fail closed.
 
 The deviation breaker is governance hygiene around signer drift, not an
-independent market feed. The primary independent controls are the ERC-1271
-threshold signer and per-token hard max prices. `price(...)` remains `view`,
+independent market feed. The primary independent controls are the
+Safe-controlled signer and per-token hard max prices. `price(...)` remains `view`,
 so quotes have no nonce; bounded-window replay is accepted only within the
 configured max quote age/duration and still remains bounded by token caps,
 reference freshness, deviation limits, and Safe-controlled signing.
@@ -142,20 +146,55 @@ The hardened oracle must be deployed directly as `SimpleSignedPriceOracle`, not
 behind an ERC1967 proxy. Do not use the current stack-deploy script for the
 mainnet oracle unless it is first changed to stop wrapping the oracle in a
 proxy. The oracle must be owned by the Fabrica Safe, have no pending ownership
-transfer, use `IMPLEMENTATION_VERSION() == "1.5"` and
+transfer, use `IMPLEMENTATION_VERSION() == "1.6"` and
 `DOMAIN_VERSION() == "1.2"`, and use EIP-712 domain name `"All US Land"` for
-live signing continuity. Direct deploy means the deployer starts as owner;
+live signing continuity. (`IMPLEMENTATION_VERSION` was bumped `1.5` → `1.6`
+when the `tokenPolicyGeneration(collateralToken, tokenId)` getter was added so
+the packet can read the generation gate `price()` actually enforces; the
+getter changes no signing semantics, so `DOMAIN_VERSION` stays `1.2`.) Direct
+deploy means the deployer starts as owner;
 `transferOwnership(Safe)` and Safe `acceptOwnership()` must complete before the
 packet's owner/pending-owner assertions pass. The live signer is the pinned EOA
 `0xC888F5e3DD4fBEB37F6e1BA6fA68c83Ab0Cf7b2c`.
 
-Before any Safe execution, configure token policies for the complete live token
-ID list, enable the market with exactly that list, and confirm the
-reference-price refresh monitor runs comfortably inside the configured
-`maxReferenceAge` and the contract-level `MAX_REFERENCE_AGE` of 30 days. The
-canonical live FabricaToken IDs are:
+> **The mainnet cutover is TWO SEPARATE Safe executions — never one MultiSend:**
+> 1. Safe `acceptOwnership()` on the freshly deployed oracle (completes the
+>    Ownable2Step handoff: `owner == Safe`, `pendingOwner == 0`).
+> 2. The repoint packet — the `DELEGATECALL` to `MultiSendCallOnly` with the two
+>    `beacon.upgradeTo` + `pool.setPriceOracle` legs.
+>
+> Run the packet dry-run **and** `reverify-cutover.sh` in the window BETWEEN
+> these two executions — i.e. after `acceptOwnership`, against the final owner
+> state. Do NOT batch `acceptOwnership` into the repoint MultiSend: at packet
+> generation time the oracle owner would still be the deployer, so the packet's
+> `owner == Safe` / `pendingOwner == 0` assertions would fail, and the only way
+> to make them pass would be to generate the packet before the handoff — while
+> the deployer can still mutate the config — which silently guts the guarantee
+> the assertions exist to provide. The market config (signer, collateral policy,
+> per-token policies, enablement) is done by the deployer while it still owns the
+> oracle, BEFORE execution (1); the Safe reviews that config through the packet
+> assertions + reverify before executing (2).
 
-`1585489599,2219685438,3170979198,4122272957,4756468797,5390664637,6341958396,7927447995`
+Before any Safe execution, configure token policies for the complete live
+FabricaToken collateral token-ID list, enable the market with exactly that
+list, and confirm the reference-price refresh monitor runs comfortably inside
+the configured `maxReferenceAge` and the contract-level `MAX_REFERENCE_AGE` of
+30 days.
+
+> **Collateral token IDs come from Fede — they are NOT derivable on-chain.**
+> The mainnet FabricaToken (`0x5cbeb7A0df7Ed85D82a472FD56d81ed550f3Ea95`) is an
+> ERC1155 without `ERC1155Supply` (no `totalSupply`/`exists`) and `uri(id)` is
+> pure string concatenation, so the enabled set cannot be read from plain state.
+> Supply the intended parcel IDs and their appraisals (per-token `maxPrice` and
+> `referencePrice`) as reviewed inputs.
+>
+> **⚠️ Historical mislabel (do not repeat):** earlier drafts listed
+> `1585489599,2219685438,3170979198,4122272957,4756468797,5390664637,6341958396,7927447995`
+> as the "canonical live FabricaToken IDs." Those are NOT token IDs — they are
+> the live pool's eight per-second interest-RATE tiers (`pool.rates()`, ≈
+> 5/7/10/13/15/17/20/25% APR; see the mainnet `createProxied` `rates[]` param).
+> The packet now carries a canary asserting no enabled token ID collides with
+> `pool.rates()`, so reintroducing that confusion fails closed.
 
 Generate the exact mainnet Safe calldata packet without broadcasting:
 
@@ -166,23 +205,65 @@ export FABRICA_MAINNET_LENDING_SAFE=0x769586A65825B028b005176F1ebbd3B82bB07Fb0
 export FABRICA_MAINNET_SAFE_MULTISEND_CALL_ONLY=0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761
 export FABRICA_MAINNET_LENDING_NEW_IMPL=<deployed reverted no-floor WeightedRateERC1155CollectionPool 2.16>
 export FABRICA_MAINNET_LENDING_NEW_IMPL_CODEHASH=<extcodehash of deployed reverted no-floor implementation>
-export FABRICA_MAINNET_GUARDED_PRICE_ORACLE=<deployed hardened SimpleSignedPriceOracle>
+export FABRICA_MAINNET_GUARDED_PRICE_ORACLE=<deployed hardened SimpleSignedPriceOracle 1.6>
 export FABRICA_MAINNET_GUARDED_PRICE_ORACLE_CODEHASH=<extcodehash of deployed hardened SimpleSignedPriceOracle>
-export FABRICA_MAINNET_LIVE_TOKEN_IDS=1585489599,2219685438,3170979198,4122272957,4756468797,5390664637,6341958396,7927447995
+# Linked libraries the 2.16 impl delegatecalls into (addr + codehash both reviewed).
+# Reuse the three carried-over live libs; only BorrowLogic is redeployed.
+export FABRICA_MAINNET_LENDING_BORROWLOGIC=<freshly deployed post-revert BorrowLogic>
+export FABRICA_MAINNET_LENDING_BORROWLOGIC_CODEHASH=<extcodehash of fresh BorrowLogic>
+export FABRICA_MAINNET_LENDING_DEPOSITLOGIC=0xf921BC503Aaf69a95Cb532A1D5084cECD47a2cF1
+export FABRICA_MAINNET_LENDING_DEPOSITLOGIC_CODEHASH=0x3adf4b80efc1c26e341714de8a50d97fe2abf007165d091eab92d9202f2ac90f
+export FABRICA_MAINNET_LENDING_LIQUIDITYLOGIC=0x62643040564e920306C8314E8CF0a0E9a13db29B
+export FABRICA_MAINNET_LENDING_LIQUIDITYLOGIC_CODEHASH=0x2bee9f9ccced7a4c0c801ec6d770b7a62269aef35a31f9ecbfa865912cdc5aba
+export FABRICA_MAINNET_LENDING_ERC20DEPOSITTOKENFACTORY=0xD39789733F2A93405CFBb76a60C51Ebf612738b4
+export FABRICA_MAINNET_LENDING_ERC20DEPOSITTOKENFACTORY_CODEHASH=0xb027db97d7da77661e7238522120e1406ad2caaa9bd954dc3b5feba976cf6e9f
+# Real FabricaToken collateral parcel IDs (from Fede), STRICTLY ASCENDING, and their
+# reviewed appraisals in the SAME order. NOT the pool rate tiers (see canary above).
+export FABRICA_MAINNET_LIVE_TOKEN_IDS=<real parcel id[,id...] strictly ascending>
+export FABRICA_MAINNET_TOKEN_MAX_PRICES=<per-id hard max price (USDC, 6dp), same order>
+export FABRICA_MAINNET_TOKEN_REFERENCE_PRICES=<per-id reference price, same order>
 export FABRICA_MAINNET_REFERENCE_REFRESH_SLA_SECONDS=<monitor SLA, e.g. 604800 for 7 days>
 
 forge script script/FabricaLendingPoolMainnetOracleRepointPacket.s.sol:FabricaLendingPoolMainnetOracleRepointPacketScript \
   --rpc-url $MAINNET_RPC_URL
 ```
 
-The implementation and guarded-oracle codehash env values are reviewed
+The implementation, guarded-oracle, and library codehash env values are reviewed
 deployment inputs, not free-form operator knobs. Include the ENG-3695 pool
-implementation deployment artifact/readback, the linked `BorrowLogic` library
-address, the ENG-3654 oracle deployment artifact/readback, and
-`cast codehash <address>` for both deployed contracts. If the oracle deployment
-model is a proxy, the packet script must be changed to validate the proxy
-implementation slot and implementation codehash before any Safe packet is
-emitted.
+implementation deployment artifact/readback, all four linked library addresses,
+the ENG-3654/ENG-3695 oracle deployment artifact/readback, and
+`cast codehash <address>` for the impl, the oracle, and every library. The
+per-token `FABRICA_MAINNET_TOKEN_MAX_PRICES` / `_REFERENCE_PRICES` are Fede's
+reviewed appraisals; the packet asserts the on-chain policy equals them so the
+Safe reviews that the configuration is correct, not merely well-formed. If the
+oracle deployment model is a proxy, the packet script must be changed to
+validate the proxy implementation slot and implementation codehash before any
+Safe packet is emitted.
+
+### Mainnet library link addresses (the `[profile.sepolia]`-equivalent record)
+
+`foundry.toml` pins per-chain library link addresses only for
+`[profile.sepolia]`; there was no mainnet record, so the live link set was
+recovered from the deployed 2.15 implementation `0x623Ce6d9B158D007fD1E79e5a58B177aB9b51d78`.
+Do NOT re-derive these from broadcast JSON. The 2.16 cutover reuses the three
+carried-over libraries UNCHANGED and redeploys only `BorrowLogic`
+(Option B — exactly one new address, three carried over):
+
+| Library | Live mainnet address (2.15 stack) | `cast codehash` | 2.16 cutover |
+|---|---|---|---|
+| `BorrowLogic` | `0x74FC5ef1917D28b11626298F5B403b0c5362FEBf` | `0x9aa1fb13978342b4398e5255edd303daace095f7f65a3b676c459a0068887e7b` | **REDEPLOY fresh** (logic-identical to audited; replaced for clean provenance) |
+| `DepositLogic` | `0xf921BC503Aaf69a95Cb532A1D5084cECD47a2cF1` | `0x3adf4b80efc1c26e341714de8a50d97fe2abf007165d091eab92d9202f2ac90f` | reuse |
+| `LiquidityLogic` | `0x62643040564e920306C8314E8CF0a0E9a13db29B` | `0x2bee9f9ccced7a4c0c801ec6d770b7a62269aef35a31f9ecbfa865912cdc5aba` | reuse |
+| `ERC20DepositTokenFactory` | `0xD39789733F2A93405CFBb76a60C51Ebf612738b4` | `0xb027db97d7da77661e7238522120e1406ad2caaa9bd954dc3b5feba976cf6e9f` | reuse |
+
+Each reused library's deployed bytecode is byte-identical (modulo its own
+call-protection self-address) to a `[profile.default]` build of the pinned
+source. `BorrowLogic` builds under `[profile.default]` (it is NOT in any
+`runs=1` compilation restriction); deploy it from the project build so
+`bytecode_hash = "None"` / `cbor_metadata = false` are honored — never pass
+optimizer/metadata flags to `forge create`, which would embed a metadata hash
+and make the deployment unverifiable. Record the fresh `BorrowLogic` address +
+codehash here after deploy.
 
 The script is view-only. It validates the canonical mainnet pool, Safe,
 beacon owner, PoolFactory/admin owner, live prestate implementation and oracle,

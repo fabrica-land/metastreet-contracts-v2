@@ -485,7 +485,7 @@ contract SimpleSignedPriceOracle is Ownable2Step, EIP712, IPriceOracle {
      * @return Price oracle implementation version
      */
     function IMPLEMENTATION_VERSION() public pure returns (string memory) {
-        return "1.5";
+        return "1.6";
     }
 
     /**
@@ -522,6 +522,25 @@ contract SimpleSignedPriceOracle is Ownable2Step, EIP712, IPriceOracle {
      */
     function tokenPolicy(address collateralToken, uint256 tokenId) external view returns (TokenPolicy memory) {
         return _tokenPolicies[collateralToken][tokenId];
+    }
+
+    /**
+     * @notice Get token policy enabled generation
+     *
+     * The generation a token policy was stamped with when the collateral market
+     * was last enabled. `price(...)` only accepts a token whose stamped
+     * generation equals the collateral policy's current `enabledGeneration`
+     * (see {_verifyQuote}); this getter exposes that gate for off-chain and
+     * packet-time verification. A generation of zero means the token was never
+     * stamped by an enable, and `enabledGeneration` itself is zero until the
+     * market is enabled for the first time.
+     *
+     * @param collateralToken Collateral token
+     * @param tokenId Token ID
+     * @return Token policy enabled generation
+     */
+    function tokenPolicyGeneration(address collateralToken, uint256 tokenId) external view returns (uint64) {
+        return _tokenPolicyGenerations[collateralToken][tokenId];
     }
 
     /**************************************************************************/

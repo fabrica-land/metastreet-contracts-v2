@@ -12,3 +12,6 @@ deployments/.cache
 out/
 cache/
 broadcast/*/dry-run/
+
+# Foundry dependency lockfile (build artifact)
+foundry.lock
