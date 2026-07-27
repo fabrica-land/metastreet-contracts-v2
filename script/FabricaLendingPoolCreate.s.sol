@@ -13,7 +13,7 @@ import {SimpleSignedPriceOracle} from "fabrica-lending-pools/oracle/SimpleSigned
  * infrastructure deployed by FabricaLendingPoolStackDeploy.s.sol. The
  * pool's collateral filter is set to a single FabricaToken collection;
  * the oracle is told to expect signatures from a Fabrica-controlled
- * ERC-1271 signer contract.
+ * signer.
  *
  * Mirrors the mainnet pool 0x842ffbf1ad5314503904626122376f71603a3cf9
  * configuration verbatim (durations, rates) unless env overrides are
@@ -28,10 +28,10 @@ import {SimpleSignedPriceOracle} from "fabrica-lending-pools/oracle/SimpleSigned
  * Required env:
  *   FABRICA_LENDING_FACTORY            PoolFactory proxy address
  *   FABRICA_LENDING_BEACON             UpgradeableBeacon address
- *   FABRICA_LENDING_ORACLE             SimpleSignedPriceOracle proxy address
+ *   FABRICA_LENDING_ORACLE             SimpleSignedPriceOracle address
  *   FABRICA_LENDING_CURRENCY_TOKEN     ERC20 currency (USDC)
  *   FABRICA_LENDING_COLLATERAL_TOKEN   FabricaToken collection address
- *   FABRICA_LENDING_ORACLE_SIGNER      ERC-1271 contract whose signatures the oracle will accept
+ *   FABRICA_LENDING_ORACLE_SIGNER      EOA or contract signer whose signatures the oracle will accept
  *
  * !!! CURRENCY TOKEN COMPLIANCE — READ BEFORE DEPLOYING A POOL !!!
  *
@@ -88,7 +88,7 @@ contract FabricaLendingPoolCreateScript is Script {
     function run() public {
         address factory = vm.envAddress("FABRICA_LENDING_FACTORY");
         address beacon = vm.envAddress("FABRICA_LENDING_BEACON");
-        address oracleProxy = vm.envAddress("FABRICA_LENDING_ORACLE");
+        address oracleAddress = vm.envAddress("FABRICA_LENDING_ORACLE");
         // !!! Must be a bool-returning ERC-20. USDT-style tokens (transferFrom
         // returns nothing) are NOT SUPPORTED — borrowers cannot repay loans
         // backed by them and would have to be liquidated. See the contract-
@@ -101,16 +101,16 @@ contract FabricaLendingPoolCreateScript is Script {
         uint64[] memory rates = _defaultRates();
         address[] memory collateralTokens = new address[](1);
         collateralTokens[0] = collateralToken;
-        bytes memory params = abi.encode(collateralTokens, currencyToken, oracleProxy, durations, rates);
+        bytes memory params = abi.encode(collateralTokens, currencyToken, oracleAddress, durations, rates);
         console.log("Factory:        ", factory);
         console.log("Beacon:         ", beacon);
-        console.log("Oracle proxy:   ", oracleProxy);
+        console.log("Oracle:         ", oracleAddress);
         console.log("Currency token: ", currencyToken);
         console.log("Collateral:     ", collateralToken);
         console.log("Oracle signer:  ", oracleSigner);
         console.log("Oracle policy:   disabled until collateral/token policies are configured");
         vm.startBroadcast();
-        SimpleSignedPriceOracle(oracleProxy).setSigner(collateralToken, oracleSigner);
+        SimpleSignedPriceOracle(oracleAddress).setSigner(collateralToken, oracleSigner);
         address pool = PoolFactory(factory).createProxied(beacon, params);
         vm.stopBroadcast();
         console.log("=== Pool created ===");

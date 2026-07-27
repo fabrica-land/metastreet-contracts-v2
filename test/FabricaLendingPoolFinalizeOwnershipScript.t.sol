@@ -87,10 +87,9 @@ contract FinalizeOwnershipScriptHarness is FabricaLendingPoolFinalizeOwnershipSc
         address poolImpl,
         address pool,
         address oracle,
-        address oracleImpl,
         string memory oracleDomainName
     ) external view {
-        _validateTargets(factory, factoryImpl, beacon, poolImpl, pool, oracle, oracleImpl, oracleDomainName);
+        _validateTargets(factory, factoryImpl, beacon, poolImpl, pool, oracle, oracleDomainName);
     }
 
     function validateOwner(string memory target, address actual, address expectedCurrentOwner, address finalOwner)
@@ -121,8 +120,6 @@ contract FinalizeOwnershipScriptHarness is FabricaLendingPoolFinalizeOwnershipSc
 contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
     address internal constant SAFE = 0x769586A65825B028b005176F1ebbd3B82bB07Fb0;
     string internal constant ORACLE_DOMAIN_NAME = "Correct Mainnet Pool";
-    bytes32 internal constant ERC1967_IMPLEMENTATION_SLOT =
-        0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
 
     PoolFactory internal factory;
     PoolFactory internal factoryImpl;
@@ -130,7 +127,6 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
     address internal poolImpl;
     address internal pool;
     SimpleSignedPriceOracle internal oracle;
-    SimpleSignedPriceOracle internal oracleImpl;
     FinalizeOwnershipScriptHarness internal script;
 
     function setUp() public {
@@ -226,13 +222,7 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
             )
         );
         _validateTargetsForPool(
-            nonContractPool,
-            address(factoryImpl),
-            address(beacon),
-            poolImpl,
-            address(oracle),
-            address(oracleImpl),
-            ORACLE_DOMAIN_NAME
+            nonContractPool, address(factoryImpl), address(beacon), poolImpl, address(oracle), ORACLE_DOMAIN_NAME
         );
     }
 
@@ -245,7 +235,7 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
                 wrongImpl
             )
         );
-        _validateTargets(wrongImpl, address(beacon), poolImpl, address(oracle), address(oracleImpl), ORACLE_DOMAIN_NAME);
+        _validateTargets(wrongImpl, address(beacon), poolImpl, address(oracle), ORACLE_DOMAIN_NAME);
     }
 
     function test_rejects_wrong_beacon_identity() public {
@@ -257,39 +247,49 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
                 wrongPoolImpl
             )
         );
-        _validateTargets(
+        _validateTargets(address(factoryImpl), address(beacon), wrongPoolImpl, address(oracle), ORACLE_DOMAIN_NAME);
+    }
+
+    function test_rejects_erc1967_proxied_oracle() public {
+        SimpleSignedPriceOracle proxiedOracleImpl = new SimpleSignedPriceOracle(ORACLE_DOMAIN_NAME);
+        SimpleSignedPriceOracle proxiedOracle = SimpleSignedPriceOracle(
+            address(
+                new ERC1967Proxy(
+                    address(proxiedOracleImpl), abi.encodeCall(SimpleSignedPriceOracle.initialize, (address(this)))
+                )
+            )
+        );
+        address proxiedOraclePool = _createPool(address(proxiedOracle));
+        vm.expectRevert(abi.encodeWithSelector(FabricaLendingPoolFinalizeOwnershipScript.OracleMustBeDirect.selector));
+        _validateTargetsForPool(
+            proxiedOraclePool,
             address(factoryImpl),
             address(beacon),
-            wrongPoolImpl,
-            address(oracle),
-            address(oracleImpl),
+            poolImpl,
+            address(proxiedOracle),
             ORACLE_DOMAIN_NAME
         );
     }
 
-    function test_rejects_wrong_oracle_implementation() public {
-        address wrongOracleImpl = address(new SimpleSignedPriceOracle(ORACLE_DOMAIN_NAME));
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                FabricaLendingPoolFinalizeOwnershipScript.UnexpectedOracleImplementation.selector,
-                address(oracleImpl),
-                wrongOracleImpl
+    function test_rejects_beacon_proxied_oracle() public {
+        SimpleSignedPriceOracle beaconOracleImpl = new SimpleSignedPriceOracle(ORACLE_DOMAIN_NAME);
+        UpgradeableBeacon oracleBeacon = new UpgradeableBeacon(address(beaconOracleImpl));
+        SimpleSignedPriceOracle beaconOracle = SimpleSignedPriceOracle(
+            address(
+                new BeaconProxy(
+                    address(oracleBeacon), abi.encodeCall(SimpleSignedPriceOracle.initialize, (address(this)))
+                )
             )
         );
-        _validateTargets(
-            address(factoryImpl), address(beacon), poolImpl, address(oracle), wrongOracleImpl, ORACLE_DOMAIN_NAME
+        address beaconOraclePool = _createPool(address(beaconOracle));
+        vm.expectRevert(abi.encodeWithSelector(FabricaLendingPoolFinalizeOwnershipScript.OracleMustBeDirect.selector));
+        _validateTargetsForPool(
+            beaconOraclePool, address(factoryImpl), address(beacon), poolImpl, address(beaconOracle), ORACLE_DOMAIN_NAME
         );
     }
 
     function test_rejects_oracle_not_bound_to_pool() public {
-        SimpleSignedPriceOracle lookalikeImpl = new SimpleSignedPriceOracle(ORACLE_DOMAIN_NAME);
-        SimpleSignedPriceOracle lookalikeOracle = SimpleSignedPriceOracle(
-            address(
-                new ERC1967Proxy(
-                    address(lookalikeImpl), abi.encodeCall(SimpleSignedPriceOracle.initialize, (address(this)))
-                )
-            )
-        );
+        SimpleSignedPriceOracle lookalikeOracle = new SimpleSignedPriceOracle(ORACLE_DOMAIN_NAME);
         vm.expectRevert(
             abi.encodeWithSelector(
                 FabricaLendingPoolFinalizeOwnershipScript.UnexpectedPoolOracle.selector,
@@ -297,14 +297,7 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
                 address(lookalikeOracle)
             )
         );
-        _validateTargets(
-            address(factoryImpl),
-            address(beacon),
-            poolImpl,
-            address(lookalikeOracle),
-            address(lookalikeImpl),
-            ORACLE_DOMAIN_NAME
-        );
+        _validateTargets(address(factoryImpl), address(beacon), poolImpl, address(lookalikeOracle), ORACLE_DOMAIN_NAME);
     }
 
     function test_rejects_pool_not_registered_by_factory() public {
@@ -315,13 +308,7 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
             )
         );
         _validateTargetsForPool(
-            unregisteredPool,
-            address(factoryImpl),
-            address(beacon),
-            poolImpl,
-            address(oracle),
-            address(oracleImpl),
-            ORACLE_DOMAIN_NAME
+            unregisteredPool, address(factoryImpl), address(beacon), poolImpl, address(oracle), ORACLE_DOMAIN_NAME
         );
     }
 
@@ -337,13 +324,7 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
             )
         );
         _validateTargetsForPool(
-            wrongBeaconPool,
-            address(factoryImpl),
-            address(beacon),
-            poolImpl,
-            address(oracle),
-            address(oracleImpl),
-            ORACLE_DOMAIN_NAME
+            wrongBeaconPool, address(factoryImpl), address(beacon), poolImpl, address(oracle), ORACLE_DOMAIN_NAME
         );
     }
 
@@ -355,9 +336,7 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
                 "Wrong Pool"
             )
         );
-        _validateTargets(
-            address(factoryImpl), address(beacon), poolImpl, address(oracle), address(oracleImpl), "Wrong Pool"
-        );
+        _validateTargets(address(factoryImpl), address(beacon), poolImpl, address(oracle), "Wrong Pool");
     }
 
     function test_rejects_wrong_oracle_domain_chain_id() public {
@@ -415,29 +394,6 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
         );
     }
 
-    function test_rejects_wrong_oracle_implementation_domain_version_constant() public {
-        (MockOracleOwner wrongOracleImplOnly,) =
-            _deployMockOracle(address(this), ORACLE_DOMAIN_NAME, "1.2", "1.2", block.chainid, address(0));
-        MockOracleOwner badImpl =
-            new MockOracleOwner(address(this), ORACLE_DOMAIN_NAME, "1.2", "9.9", block.chainid, address(0));
-        vm.store(address(wrongOracleImplOnly), ERC1967_IMPLEMENTATION_SLOT, bytes32(uint256(uint160(address(badImpl)))));
-        address wrongOraclePool = _createPool(address(wrongOracleImplOnly));
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                FabricaLendingPoolFinalizeOwnershipScript.UnexpectedOracleDomainVersion.selector, "9.9", "1.2"
-            )
-        );
-        _validateTargetsForPool(
-            wrongOraclePool,
-            address(factoryImpl),
-            address(beacon),
-            poolImpl,
-            address(wrongOracleImplOnly),
-            address(badImpl),
-            ORACLE_DOMAIN_NAME
-        );
-    }
-
     function test_rejects_unregistered_beacon() public {
         PoolFactory unregisteredFactoryImpl = new PoolFactory();
         PoolFactory unregisteredFactory = PoolFactory(
@@ -457,7 +413,6 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
             poolImpl,
             pool,
             address(oracle),
-            address(oracleImpl),
             ORACLE_DOMAIN_NAME
         );
     }
@@ -518,13 +473,12 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
         poolImpl = _deployPoolImplementation();
         beacon = new UpgradeableBeacon(poolImpl);
         factory.addPoolImplementation(address(beacon));
-        oracleImpl = new SimpleSignedPriceOracle(ORACLE_DOMAIN_NAME);
-        bytes memory oracleInit = abi.encodeCall(SimpleSignedPriceOracle.initialize, (owner));
-        oracle = SimpleSignedPriceOracle(address(new ERC1967Proxy(address(oracleImpl), oracleInit)));
+        oracle = new SimpleSignedPriceOracle(ORACLE_DOMAIN_NAME);
         pool = _createPool(address(oracle));
         if (owner != address(this)) {
             factory.transferOwnership(owner);
             beacon.transferOwnership(owner);
+            oracle.transferOwnership(owner);
         }
     }
 
@@ -574,11 +528,8 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
         string memory domainVersion,
         uint256 domainChainId,
         address verifyingContract
-    ) internal returns (MockOracleOwner wrongOracle, MockOracleOwner wrongOracleImpl) {
+    ) internal returns (MockOracleOwner wrongOracle) {
         wrongOracle = new MockOracleOwner(owner, name, eip712Version, domainVersion, domainChainId, verifyingContract);
-        wrongOracleImpl =
-            new MockOracleOwner(owner, name, eip712Version, domainVersion, domainChainId, verifyingContract);
-        vm.store(address(wrongOracle), ERC1967_IMPLEMENTATION_SLOT, bytes32(uint256(uint160(address(wrongOracleImpl)))));
     }
 
     function _expectMockOracleTargetRevert(
@@ -589,7 +540,7 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
         address verifyingContract,
         bytes memory expectedRevert
     ) internal {
-        (MockOracleOwner wrongOracle, MockOracleOwner wrongOracleImpl) = _deployMockOracle(
+        MockOracleOwner wrongOracle = _deployMockOracle(
             address(this), name, eip712Version, domainVersion, domainChainId, verifyingContract
         );
         address wrongOraclePool = _createPool(address(wrongOracle));
@@ -602,13 +553,7 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
         }
         vm.expectRevert(expectedRevert);
         _validateTargetsForPool(
-            wrongOraclePool,
-            address(factoryImpl),
-            address(beacon),
-            poolImpl,
-            address(wrongOracle),
-            address(wrongOracleImpl),
-            ORACLE_DOMAIN_NAME
+            wrongOraclePool, address(factoryImpl), address(beacon), poolImpl, address(wrongOracle), ORACLE_DOMAIN_NAME
         );
     }
 
@@ -631,17 +576,10 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
         address expectedBeacon,
         address expectedPoolImpl,
         address expectedOracle,
-        address expectedOracleImpl,
         string memory expectedOracleDomainName
     ) internal view {
         _validateTargetsForPool(
-            pool,
-            expectedFactoryImpl,
-            expectedBeacon,
-            expectedPoolImpl,
-            expectedOracle,
-            expectedOracleImpl,
-            expectedOracleDomainName
+            pool, expectedFactoryImpl, expectedBeacon, expectedPoolImpl, expectedOracle, expectedOracleDomainName
         );
     }
 
@@ -651,7 +589,6 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
         address expectedBeacon,
         address expectedPoolImpl,
         address expectedOracle,
-        address expectedOracleImpl,
         string memory expectedOracleDomainName
     ) internal view {
         script.validateTargets(
@@ -661,7 +598,6 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
             expectedPoolImpl,
             expectedPool,
             expectedOracle,
-            expectedOracleImpl,
             expectedOracleDomainName
         );
     }
@@ -673,7 +609,6 @@ contract FabricaLendingPoolFinalizeOwnershipScriptTest is Test {
         vm.setEnv("FABRICA_LENDING_POOL_IMPL", vm.toString(poolImpl));
         vm.setEnv("FABRICA_LENDING_POOL", vm.toString(pool));
         vm.setEnv("FABRICA_LENDING_ORACLE", vm.toString(address(oracle)));
-        vm.setEnv("FABRICA_LENDING_ORACLE_IMPL", vm.toString(address(oracleImpl)));
         vm.setEnv("FABRICA_LENDING_ORACLE_DOMAIN_NAME", ORACLE_DOMAIN_NAME);
         vm.setEnv("FABRICA_LENDING_EXPECTED_CURRENT_OWNER", vm.toString(expectedCurrentOwner));
         vm.setEnv("FABRICA_LENDING_FINAL_OWNER", vm.toString(finalOwner));
