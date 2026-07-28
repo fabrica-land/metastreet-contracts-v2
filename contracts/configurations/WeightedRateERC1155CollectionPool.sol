@@ -26,27 +26,8 @@ contract WeightedRateERC1155CollectionPool is
     ExternalPriceOracle
 {
     /**************************************************************************/
-    /* Errors */
-    /**************************************************************************/
-
-    /**
-     * @notice Invalid price oracle updater
-     */
-    error InvalidPriceOracleUpdater();
-
-    /**************************************************************************/
     /* Immutable State */
     /**************************************************************************/
-
-    /**
-     * @notice setPriceOracle(address) selector
-     */
-    bytes4 private constant SET_PRICE_ORACLE_SELECTOR = 0x530e784f;
-
-    /**
-     * @notice owner() selector
-     */
-    bytes4 private constant OWNER_SELECTOR = 0x8da5cb5b;
 
     /**
      * @notice ERC1155 Collateral Wrapper address
@@ -220,49 +201,20 @@ contract WeightedRateERC1155CollectionPool is
     }
 
     /**************************************************************************/
-    /* Fallback */
-    /**************************************************************************/
-
-    /**
-     * @notice Size-constrained dispatcher for setPriceOracle(address)
-     * @dev The pool is close to EIP-170. The fallback accepts only the
-     *      setPriceOracle(address) selector with canonical 36-byte calldata;
-     *      every other selector or empty calldata reverts InvalidParameters().
-     */
-    fallback() external {
-        if (msg.sig != SET_PRICE_ORACLE_SELECTOR || msg.data.length != 36) revert InvalidParameters();
-        if (msg.sender != _storage.admin) {
-            (bool ok, bytes memory data) = _storage.admin.staticcall(abi.encodeWithSelector(OWNER_SELECTOR));
-            if (!ok || data.length != 32 || abi.decode(data, (address)) != msg.sender) {
-                revert InvalidPriceOracleUpdater();
-            }
-        }
-        ExternalPriceOracle._setPriceOracle(abi.decode(msg.data[4:], (address)));
-    }
-
-    /**************************************************************************/
     /* ERC1155Holder */
     /**************************************************************************/
 
-    /**
-     * @notice Accept a single ERC1155 collateral transfer
-     * @return ERC1155 receiver selector
-     */
-    function onERC1155Received(address, address, uint256, uint256, bytes memory) external pure returns (bytes4) {
-        return IERC1155Receiver.onERC1155Received.selector;
+    function onERC1155Received(address, address, uint256, uint256, bytes memory) public pure returns (bytes4) {
+        return this.onERC1155Received.selector;
     }
 
-    /**
-     * @notice Reject ERC1155 batch transfers
-     * @return Zero selector to reject the batch transfer
-     */
     function onERC1155BatchReceived(
         address,
         address,
         uint256[] memory,
         uint256[] memory,
         bytes memory
-    ) external pure returns (bytes4) {
+    ) public pure returns (bytes4) {
         /* Batch transfers not supported */
         return 0;
     }
