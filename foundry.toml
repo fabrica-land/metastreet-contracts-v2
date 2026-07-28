@@ -85,17 +85,33 @@ max_optimizer_runs = 1
 # so per-chain linking is a named profile selected with FOUNDRY_PROFILE=sepolia,
 # e.g. `FOUNDRY_PROFILE=sepolia forge script script/FabricaLendingPoolUpgrade.s.sol`.
 # These are the live post-ENG-3231 Sepolia library deployments (see
-# LENDING-POOL-RUNBOOK.md). There is NO Fabrica mainnet deployment — the mainnet
-# lending pool (0x842Ffbf1AD5314503904626122376f71603A3Cf9) is MetaStreet's own
-# and is not Fabrica-upgradable, so no [profile.mainnet] is provided here; the
-# upstream mainnet library addresses are recorded in LENDING-POOL-RUNBOOK.md as
-# reference only, NOT as valid link targets for a Fabrica-built impl.
+# LENDING-POOL-RUNBOOK.md). The Fabrica mainnet lending pool
+# (0x221014c0b6871f3F0d57F262ae6B5b6CD2901456, beacon 0x30E9A2082E297a2E18615224A6146f6c73F7b7A6)
+# links its own four libraries; those live mainnet link addresses are pinned in
+# [profile.mainnet] below. (0x842Ffbf1AD5314503904626122376f71603A3Cf9 is a
+# SEPARATE, upstream MetaStreet pool that is not Fabrica-upgradable — do not
+# confuse the two.)
 [profile.sepolia]
 libraries = [
     "contracts/BorrowLogic.sol:BorrowLogic:0x97bD28cd2EC4D226969221574f7EeBE301bf7557",
     "contracts/DepositLogic.sol:DepositLogic:0xcab821709338df0f718491d0f3038fbD6a16CfbE",
     "contracts/LiquidityLogic.sol:LiquidityLogic:0xc98899f5A7feFC5146C1574D6b51C0A5C993b505",
     "contracts/tokenization/ERC20DepositTokenFactory.sol:ERC20DepositTokenFactory:0x8722651F6f79Bde509c48Fc65c37A3b8faf9086D",
+]
+
+# Mainnet external-library link addresses for the Fabrica lending pool. These
+# appear nowhere else in the repo's history; they were recovered by two
+# independent methods that share no failure mode — reading the deployed pool
+# bytecode at its linkReferences offsets, and cross-referencing the ENG-3115
+# broadcast artifacts (verified logic-identical). Both derivations agree on all
+# four addresses (recorded in the PR description). Selected with
+# FOUNDRY_PROFILE=mainnet; NOT used by the default-profile parity build.
+[profile.mainnet]
+libraries = [
+    "contracts/BorrowLogic.sol:BorrowLogic:0x74FC5ef1917D28b11626298F5B403b0c5362FEBf",
+    "contracts/DepositLogic.sol:DepositLogic:0xf921BC503Aaf69a95Cb532A1D5084cECD47a2cF1",
+    "contracts/LiquidityLogic.sol:LiquidityLogic:0x62643040564e920306C8314E8CF0a0E9a13db29B",
+    "contracts/tokenization/ERC20DepositTokenFactory.sol:ERC20DepositTokenFactory:0xD39789733F2A93405CFBb76a60C51Ebf612738b4",
 ]
 
 [fmt]
