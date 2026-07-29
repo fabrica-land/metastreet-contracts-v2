@@ -60,18 +60,29 @@ contract FabricaLendingPoolCreateWithAggregatorScript is Script {
         console.log("Pool (BeaconProxy):", pool);
     }
 
+    /// @notice Mainnet duration tiers (strictly descending) — Pool.initialize requires durations[i] < durations[i-1].
     function _defaultDurations() internal pure returns (uint64[] memory durations) {
-        durations = new uint64[](3);
-        durations[0] = 7 days;
-        durations[1] = 14 days;
-        durations[2] = 30 days;
+        durations = new uint64[](8);
+        durations[0] = 62208000;
+        durations[1] = 31104000;
+        durations[2] = 23328000;
+        durations[3] = 15552000;
+        durations[4] = 10368000;
+        durations[5] = 7776000;
+        durations[6] = 5184000;
+        durations[7] = 2592000;
     }
 
+    /// @notice Mainnet rate tiers (ascending APR ~5/7/10/13/15/17/20/25 %), per-second 1e18-scaled.
     function _defaultRates() internal pure returns (uint64[] memory rates) {
-        // Interest per second placeholders — operator overrides via env later if needed.
-        rates = new uint64[](3);
-        rates[0] = 1;
-        rates[1] = 2;
-        rates[2] = 3;
+        rates = new uint64[](8);
+        rates[0] = 1585489599;
+        rates[1] = 2219685438;
+        rates[2] = 3170979198;
+        rates[3] = 4122272957;
+        rates[4] = 4756468797;
+        rates[5] = 5390664637;
+        rates[6] = 6341958396;
+        rates[7] = 7927447995;
     }
 }

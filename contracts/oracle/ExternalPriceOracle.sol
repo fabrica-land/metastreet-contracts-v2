@@ -49,6 +49,12 @@ contract ExternalPriceOracle is PriceOracle {
     /* Events */
     /**************************************************************************/
 
+    /**
+     * @notice Emitted when the external price oracle address is updated
+     * @param previousOracle Previous price oracle address
+     * @param newOracle New price oracle address
+     * @param caller Caller that applied the change
+     */
     event PriceOracleUpdated(address indexed previousOracle, address indexed newOracle, address indexed caller);
 
     /**************************************************************************/
@@ -86,6 +92,10 @@ contract ExternalPriceOracle is PriceOracle {
     /* API */
     /**************************************************************************/
 
+    /**
+     * @notice Get live price oracle address
+     * @return Price oracle address
+     */
     function priceOracle() public view returns (address) {
         return _getPriceOracleStorage().addr;
     }

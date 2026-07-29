@@ -15,6 +15,7 @@ import {
 import {ERC1155CollateralWrapper} from "fabrica-lending-pools/wrappers/ERC1155CollateralWrapper.sol";
 
 import "./concretes/MockCollateralLiquidator.sol";
+import "./concretes/MockERC20Metadata.sol";
 
 interface IOracleRepoint {
     function setPriceOracle(address newOracle) external;
@@ -55,12 +56,6 @@ contract MockAggregatorOracle is IPriceOracle {
             revert("CheckFailed(heartbeat)");
         }
         return _price;
-    }
-}
-
-contract MockERC20Metadata {
-    function decimals() external pure returns (uint8) {
-        return 6;
     }
 }
 

@@ -353,6 +353,13 @@ ED disposition (2026-07-29): size-safe setter + operational Safe delay accepted
 at 667B EIP-170 margin — on-chain scheduler would mortgage every future byte
 for a property the Safe layer already provides.
 
+EIP-170 measurement command (authoritative gate on this fork):
+
+```bash
+bash script/check-pool-size.sh
+# OK: WeightedRateERC1155CollectionPool runtime=23909B (margin 667B)
+```
+
 ### Launch path scripts (item 3) — **no agent broadcasts**
 
 - `script/FabricaLendingPoolCreateWithAggregator.s.sol` — createProxied with aggregator

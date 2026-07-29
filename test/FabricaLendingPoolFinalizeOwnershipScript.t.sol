@@ -19,6 +19,7 @@ import {
 import {ERC1155CollateralWrapper} from "fabrica-lending-pools/wrappers/ERC1155CollateralWrapper.sol";
 
 import "../script/FabricaLendingPoolFinalizeOwnership.s.sol";
+import "./concretes/MockERC20Metadata.sol";
 
 contract MockOracleOwner is Ownable2Step {
     string internal name_;
@@ -62,12 +63,6 @@ contract MockOracleOwner is Ownable2Step {
     {
         address resolvedVerifyingContract = verifyingContract_ == address(0) ? address(this) : verifyingContract_;
         return (hex"0f", name_, eip712Version_, domainChainId_, resolvedVerifyingContract, bytes32(0), new uint256[](0));
-    }
-}
-
-contract MockERC20Metadata {
-    function decimals() external pure returns (uint8) {
-        return 6;
     }
 }
 
