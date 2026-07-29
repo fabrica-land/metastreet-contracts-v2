@@ -371,3 +371,28 @@ Real chain broadcasts are Tim/Fede-gated. Agents use dry-run + throwaway anvil o
 
 - Empty `oracleContext` is valid for aggregator-priced `price()` (unit + anvil).
 - Dead-heartbeat aggregator fail-closed reverts `price()` → borrow cannot originate.
+
+## ENG-3519 WP-C — Tick policy (design-review input)
+
+Full report: https://github.com/fabrica-land/fabrica-v3/blob/main/wrap-ups/artifacts/ENG-3519-wpc-tick-policy.md
+
+### Live Sepolia snapshot (2026-07-29, pool `0x6C56…c0B`)
+
+| Class | Share of node value |
+|-------|---------------------|
+| Ratio (50% LTV tick `1280189`) | **~85.8%** |
+| Absolute ($1 / $1000-class limits) | **~14.2%** |
+
+### Recommendation (start proposal — Tim/Fede sign-off pre-deploy)
+
+| Knob | Start proposal |
+|------|----------------|
+| **Tick limit type for land** | **Absolute primary** (price-independent stack depth) |
+| Ratio | Optional stretch only; max ≤30–40% LTV if used |
+| Target TVL mix | **≥80% Absolute** by value (invert live Sepolia) |
+| Max duration (land) | Short until continuous monitoring (Fede) |
+| Absolute ladder $ | Product-defined — not Sepolia $1/$1000 toys |
+
+**Why:** Ratio capacity scales with oracle price (expands when overpriced). Absolute capacity does not. Borrowers can skip low ticks (no guaranteed attachment). Oracle is origination-only — long durations rot without monitoring.
+
+**Mechanism:** `Tick.LimitType.Absolute` vs `Ratio` in `contracts/Tick.sol` (`decode`: Ratio → `oraclePrice * bps / 10_000`).
