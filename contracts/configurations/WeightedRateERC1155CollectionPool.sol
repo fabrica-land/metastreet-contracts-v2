@@ -226,7 +226,9 @@ contract WeightedRateERC1155CollectionPool is
     /**
      * @notice Dispatcher for setPriceOracle(address)
      * @dev Canonical 36-byte calldata only. Caller = admin or Ownable(admin).owner().
-     *      Operational 48h delay via Safe delay module (on-chain timelock exceeds EIP-170).
+     *      SECURITY: effect is IMMEDIATE — this contract does not enforce a delay.
+     *      Design-review knob: repoint delay = Safe delay module [operational] vs
+     *      on-chain scheduler [rejected: EIP-170]; Tim/Fede sign-off pre-deploy.
      */
     fallback() external {
         if (msg.sig != SET_PRICE_ORACLE_SELECTOR || msg.data.length != 36) revert InvalidParameters();

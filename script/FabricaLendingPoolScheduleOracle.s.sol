@@ -9,8 +9,10 @@ import {Script, console} from "forge-std/Script.sol";
  * After beacon upgrade to IMPLEMENTATION_VERSION 2.16, pool admin (or
  * Ownable(admin).owner) can call setPriceOracle(newAggregator).
  *
- * Operational 48h delay: queue the call through the Safe delay module —
- * on-chain timelock does not fit under EIP-170 with Fabrica pool deltas.
+ * SECURITY POSTURE: the contract applies setPriceOracle IMMEDIATELY. It does
+ * not enforce a delay. Design-review knob: repoint delay = Safe delay module
+ * [operational] vs on-chain scheduler [rejected: EIP-170]; Tim/Fede sign-off
+ * pre-deploy. Queue the call through the Safe delay module for 48-72h.
  *
  * Agents: dry-run only. No on-chain deploys or broadcasts.
  *
@@ -30,7 +32,7 @@ contract FabricaLendingPoolScheduleOracleScript is Script {
         console.log("Pool:   ", pool);
         console.logBytes(data);
         console.log("Mode:   ", dryRun ? "DRY_RUN" : "BROADCAST");
-        console.log("Note: use Safe delay module for operational 48h timelock");
+        console.log("SECURITY: contract delay=NONE; use Safe delay module (operational 48-72h)");
         if (dryRun) return;
         vm.startBroadcast();
         (bool ok, bytes memory ret) = pool.call(data);

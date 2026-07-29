@@ -331,11 +331,27 @@ IMPLEMENTATION_VERSION `2.16` adds `setPriceOracle(address)` (selector
 `WeightedRateERC1155CollectionPool`. Caller must be pool `admin()` or
 `Ownable(admin).owner()`. Candidate must have contract code.
 
-**On-chain 48h timelock does not fit under EIP-170** with the existing Fabrica
-pool deltas (measured ~1.8KB over limit with schedule/execute). Operational
-delay: queue `setPriceOracle` through the **Safe transaction delay module**
-(48–72h) on the admin/Safe path. Documented here as the design-review choice
-for WP-B; revisit a leaner on-chain delay only if a future size budget opens.
+**Plain security posture (do not misread the contract):**
+`setPriceOracle` takes effect **immediately** when a permitted caller submits
+it. The pool bytecode does **not** enforce a delay. Anyone reading the
+Solidity alone will not find a 48h/72h lock — that property lives entirely
+in the operational control plane (Safe delay module), not on-chain.
+
+### Design-review knobs (WP-B / oracle repoint) — Tim/Fede sign-off pre-deploy
+
+| Knob | Start proposal | Notes |
+|------|----------------|-------|
+| Pool mode (Sepolia) | BeaconProxy via `createProxied` | Confirmed live; not EIP-1167 clone |
+| Oracle at initialize | Renounced `FabricaOracleAggregator` | Not FAO fact store; not SimpleSigned |
+| `setPriceOracle` auth | pool `admin` or `Ownable(admin).owner` | Safe as factory owner is production path |
+| **Repoint delay** | **Safe delay module [operational]** | **vs on-chain scheduler [rejected: EIP-170]; Tim/Fede sign-off pre-deploy** |
+| Operational delay window | 48–72h | Queued on Safe; contract has zero delay |
+| Candidate oracle check | `code.length != 0` | No full ABI probe (size) |
+| Empty `oracleContext` | Required for launch borrow | Aggregator reads on-chain facts only |
+
+ED disposition (2026-07-29): size-safe setter + operational Safe delay accepted
+at 667B EIP-170 margin — on-chain scheduler would mortgage every future byte
+for a property the Safe layer already provides.
 
 ### Launch path scripts (item 3) — **no agent broadcasts**
 

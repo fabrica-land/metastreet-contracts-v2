@@ -9,9 +9,11 @@ import "../interfaces/IPriceOracle.sol";
  * @title External Price Oracle
  * @author MetaStreet Labs
  * @dev Fabrica ENG-3519 WP-B: admin setPriceOracle (size-constrained fallback on
- *      WeightedRateERC1155CollectionPool). 48h delay is operational via Safe
- *      transaction delay module for live stacks — on-chain timelock did not fit
- *      under EIP-170 with the rest of the Fabrica pool deltas (see runbook).
+ *      WeightedRateERC1155CollectionPool).
+ *      SECURITY POSTURE — repoint delay is NOT enforced by this contract.
+ *      `_setPriceOracle` applies immediately. Design-review knob: repoint delay =
+ *      Safe delay module [operational] vs on-chain scheduler [rejected: EIP-170];
+ *      Tim/Fede sign-off pre-deploy. See LENDING-POOL-RUNBOOK.md knobs table.
  */
 contract ExternalPriceOracle is PriceOracle {
     /**************************************************************************/
