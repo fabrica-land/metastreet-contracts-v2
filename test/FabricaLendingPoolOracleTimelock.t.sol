@@ -120,6 +120,14 @@ contract FabricaLendingPoolOracleTimelockTest is Test {
         assertEq(IPoolOracleViews(pool).price(address(0), address(0), ids, qtys, ""), 110_000e6);
     }
 
+    function test_factoryOwnerCanSetPriceOracle() public {
+        // Production path: admin is immutable factory; Safe = Ownable(admin).owner() calls pool.
+        assertEq(factory.owner(), address(this), "test is factory owner");
+        // no prank — address(this) is factory.owner()
+        IOracleRepoint(pool).setPriceOracle(address(replacementOracle));
+        assertEq(IPoolOracleViews(pool).priceOracle(), address(replacementOracle));
+    }
+
     function test_randomCallerCannotSet() public {
         address caller = makeAddr("random");
         vm.prank(caller);
