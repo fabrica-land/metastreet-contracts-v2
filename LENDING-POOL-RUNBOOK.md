@@ -314,3 +314,60 @@ is the unchanged BeaconProxy).
 - Third-party caller (the staging API `mintingWallet`): `0x5Cf573087BB00d56b457C108F373a3ac4984e28b`
 - Collateral: FabricaToken id `6916740955630765930`
 - Repay tx: [`0x90e99cfddfd2ec8ec7afabb8084d2f943a82a944b4f4a07b74bd6183456ed59a`](https://sepolia.etherscan.io/tx/0x90e99cfddfd2ec8ec7afabb8084d2f943a82a944b4f4a07b74bd6183456ed59a)
+
+## ENG-3519 WP-B — Oracle launch path & Sepolia mode report
+
+### Sepolia deployment mode (item 1)
+
+Live Sepolia pool `0x6C56d0953377D7AB479BBA85Da8d61050F774c0B` is a **BeaconProxy**
+created via `PoolFactory.createProxied(beacon, params)` against beacon
+`0xe1b74cbf78a693E6289dC1c983D8bC2e5097139E`. It is **not** an EIP-1167 clone
+from `create()`.
+
+### setPriceOracle (item 2) — size-safe design
+
+IMPLEMENTATION_VERSION `2.16` adds `setPriceOracle(address)` (selector
+`0x530e784f`) via a size-constrained `fallback` on
+`WeightedRateERC1155CollectionPool`. Caller must be pool `admin()` or
+`Ownable(admin).owner()`. Candidate must have contract code.
+
+**Plain security posture (do not misread the contract):**
+`setPriceOracle` takes effect **immediately** when a permitted caller submits
+it. The pool bytecode does **not** enforce a delay. Anyone reading the
+Solidity alone will not find a 48h/72h lock — that property lives entirely
+in the operational control plane (Safe delay module), not on-chain.
+
+### Design-review knobs (WP-B / oracle repoint) — Tim/Fede sign-off pre-deploy
+
+| Knob | Start proposal | Notes |
+|------|----------------|-------|
+| Pool mode (Sepolia) | BeaconProxy via `createProxied` | Confirmed live; not EIP-1167 clone |
+| Oracle at initialize | Renounced `FabricaOracleAggregator` | Not FAO fact store; not SimpleSigned |
+| `setPriceOracle` auth | pool `admin` or `Ownable(admin).owner` | Safe as factory owner is production path |
+| **Repoint delay** | **Safe delay module [operational]** | **vs on-chain scheduler [rejected: EIP-170]; Tim/Fede sign-off pre-deploy** |
+| Operational delay window | 48–72h | Queued on Safe; contract has zero delay |
+| Candidate oracle check | `code.length != 0` | No full ABI probe (size) |
+| Empty `oracleContext` | Required for launch borrow | Aggregator reads on-chain facts only |
+
+ED disposition (2026-07-29): size-safe setter + operational Safe delay accepted
+at 667B EIP-170 margin — on-chain scheduler would mortgage every future byte
+for a property the Safe layer already provides.
+
+EIP-170 measurement command (authoritative gate on this fork):
+
+```bash
+bash script/check-pool-size.sh
+# OK: WeightedRateERC1155CollectionPool runtime=23909B (margin 667B)
+```
+
+### Launch path scripts (item 3) — **no agent broadcasts**
+
+- `script/FabricaLendingPoolCreateWithAggregator.s.sol` — createProxied with aggregator
+- `script/FabricaLendingPoolScheduleOracle.s.sol` — setPriceOracle calldata helper
+
+Real chain broadcasts are Tim/Fede-gated. Agents use dry-run + throwaway anvil only.
+
+### Acceptance (item 5)
+
+- Empty `oracleContext` is valid for aggregator-priced `price()` (unit + anvil).
+- Dead-heartbeat aggregator fail-closed reverts `price()` → borrow cannot originate.
