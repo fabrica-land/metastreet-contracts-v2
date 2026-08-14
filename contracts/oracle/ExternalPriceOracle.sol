@@ -62,6 +62,14 @@ contract ExternalPriceOracle is PriceOracle {
     /**************************************************************************/
 
     function __initialize(address addr) internal {
+        /* Fabrica ENG-3519: reject a zero/codeless oracle at BIRTH, matching the guard
+           `_setPriceOracle` applies to a repoint. Without it a pool can be created with
+           priceOracle == 0, where `price()` returns 0 WITHOUT reverting — and a zero
+           price still originates at the full limit of an Absolute-limit tick. On an
+           implementation predating the 2.16 `setPriceOracle` fallback there is no
+           repoint, so such a pool is unrecoverable. `code.length == 0` subsumes the zero
+           address, which has no code. */
+        if (addr.code.length == 0) revert InvalidPriceOracle(addr);
         _getPriceOracleStorage().addr = addr;
     }
 

@@ -10,7 +10,7 @@ own UUPS upgrade runbook in the `fabrica-land/fabrica-v3-contracts` repo.)
 
 | Contract                                | Address                                      | Notes                                          |
 |-----------------------------------------|----------------------------------------------|------------------------------------------------|
-| **UpgradeableBeacon** (WeightedRateERC1155CollectionPool target) | `0xe1b74cbf78a693E6289dC1c983D8bC2e5097139E` | `upgradeTo(newImpl)` is the upgrade lever      |
+| **UpgradeableBeacon** (WeightedRateERC1155CollectionPool target) | `0xe1B74Cbf78a693e6289dc1C983D8BC2E5097139e` | `upgradeTo(newImpl)` is the upgrade lever      |
 | **Beacon owner**                        | `0xBF03076547a99857b796717faF4034dea94569dF` | `TESTNET_DEPLOYER_PRIVATE_KEY` in `.env`       |
 | **PoolFactory** (ERC1967 proxy)         | `0x110bD40421Bf418A8B0d8AbA6568fB020c42Ee83` | `createProxied(beacon, params)` spawns pools   |
 | **PoolFactory owner**                   | `0xBF03076547a99857b796717faF4034dea94569dF` |                                                |
@@ -225,7 +225,7 @@ pool's runtime bytecode over EIP-170.
 # Confirm the deployer wallet still owns the beacon and that the factory
 # owner agrees. If these differ from what's in this table, STOP — the
 # upgrade lever is no longer in the deployer's hands.
-cast call 0xe1b74cbf78a693E6289dC1c983D8bC2e5097139E 'owner()(address)' --rpc-url $SEPOLIA_RPC_URL
+cast call 0xe1B74Cbf78a693e6289dc1C983D8BC2E5097139e 'owner()(address)' --rpc-url $SEPOLIA_RPC_URL
 cast call 0x110bD40421Bf418A8B0d8AbA6568fB020c42Ee83 'owner()(address)' --rpc-url $SEPOLIA_RPC_URL
 
 # Confirm the immutable args we'll bake into the new impl match the
@@ -250,18 +250,29 @@ cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'liquidationGracePeriod()(u
 # TESTNET_DEPLOYER_PRIVATE_KEY (the beacon owner), SEPOLIA_RPC_URL,
 # and ETHERSCAN_API_KEY (for --verify).
 
-export FABRICA_LENDING_BEACON=0xe1b74cbf78a693E6289dC1c983D8bC2e5097139E
+export FABRICA_LENDING_BEACON=0xe1B74Cbf78a693e6289dc1C983D8BC2E5097139e
 export FABRICA_LENDING_COLLATERAL_LIQUIDATOR=0xc780FEe561fc6E50493C496a53c62518971ba9EF
 export FABRICA_LENDING_DELEGATE_REGISTRY_V1=0x00000000000076A84feF008CDAbe6409d2FE638B
 export FABRICA_LENDING_DELEGATE_REGISTRY_V2=0x00000000000000447e69651d841bD8D104Bed493
 export FABRICA_LENDING_ERC20_DEPOSIT_TOKEN_IMPL=0x479c18dcEB406C88a0E05c86b9Ca02B6B043507B
 export FABRICA_LENDING_ERC1155_COLLATERAL_WRAPPER=0xf6E3932F8b4ef957f3E361CECBF1489Ea93cb086
+# Omitting this rebakes the grace window from the script's vm.envOr default. It currently
+# EQUALS the live value (1728000), so omitting it is a no-op today — export it anyway so
+# the command stays correct if either side changes.
+export FABRICA_LENDING_LIQUIDATION_GRACE_PERIOD=1728000
 
-forge script script/FabricaLendingPoolUpgrade.s.sol:FabricaLendingPoolUpgradeScript \
+# The upgrade script uses vm.deployCode, which reads whatever is already in out/. Under
+# viaIR this repo's pool size depends on the whole compilation unit (see foundry.toml
+# MECHANISM), and forge script does NOT enforce EIP-170 in local simulation — an
+# over-limit implementation simulates fine and fails only on-chain, after the beacon-owner
+# key is on the wire. Re-run the size gate from a clean build immediately before broadcast.
+bash script/check-pool-size.sh
+
+FOUNDRY_PROFILE=sepolia forge script script/FabricaLendingPoolUpgrade.s.sol:FabricaLendingPoolUpgradeScript \
   --rpc-url $SEPOLIA_RPC_URL \
   --private-key $TESTNET_DEPLOYER_PRIVATE_KEY \
   --broadcast \
-  --verify
+  --verify --etherscan-api-key $ETHERSCAN_API_KEY
 ```
 
 Record the printed `New WeightedRateERC1155CollectionPool:` address.
@@ -272,7 +283,7 @@ and asserts `beacon.implementation() == newImpl` after the call.
 
 ```bash
 # Beacon points at the new impl
-cast call 0xe1b74cbf78a693E6289dC1c983D8bC2e5097139E 'implementation()(address)' --rpc-url $SEPOLIA_RPC_URL
+cast call 0xe1B74Cbf78a693e6289dc1C983D8BC2E5097139e 'implementation()(address)' --rpc-url $SEPOLIA_RPC_URL
 
 # Pool BeaconProxy now sees the new IMPLEMENTATION_VERSION (set by the
 # new impl's IMPLEMENTATION_VERSION constant — bump this in the next
@@ -292,7 +303,7 @@ cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'IMPLEMENTATION_VERSION()(s
 |------|---------|--------------|-------|
 | (initial deploy, pre-broadcast-log) | Sepolia | `0x890625c28d221B65e97D300d2BC0F305D12acDCf` | Upstream MetaStreet `WeightedRateERC1155CollectionPool` 2.15. No Fabrica modifications. |
 | 2026-05-27 (ENG-3076) | Sepolia | `0xA84C15ecA620C5E4766fE0c6dd8Eaf419A838518` | Adds `Pool.depositFor(recipient, ...)` (ENG-3101) and anyone-can-repay (ENG-3076). EIP-170: 24,259 bytes (317 under). Deployed via the original FabricaLendingPoolStackDeploy.s.sol's `new WeightedRateERC1155CollectionPool(...)` site (broadcast tx `0x38efda31d7f12fe780d9a31e5b7bec0c74d15040829868de4265bbb38820bbc5`); beacon repointed via `UpgradeableBeacon.upgradeTo` shortly after. Subsequent upgrades use `FabricaLendingPoolUpgrade.s.sol` (one-shot deploy + repoint). [Etherscan-verified](https://sepolia.etherscan.io/address/0xA84C15ecA620C5E4766fE0c6dd8Eaf419A838518#code). |
-| 2026-06-11 (ENG-3231) | Sepolia | `0x78F794373E7B4b2fCF86987C70abdA0e12fE9BB5` | Breaking 8-arg `borrow(address borrower, ...)` — designates the borrower-of-record/beneficial owner (repay redemption, liquidation surplus, refinance control all key off `loanReceipt.borrower`); collateral still pulled from `msg.sender`, principal still sent to `msg.sender`. The LP-dispatch layer was reclaimed from the Pool concrete into the `BorrowLogic`/`DepositLogic` external libraries to fit EIP-170: **23,628 bytes (948 under)**. New libs deployed (the `[profile.sepolia].libraries` pins above point at these): BorrowLogic `0x97bD28cd2EC4D226969221574f7EeBE301bf7557` (create tx `0xad6f6577db380f2baf5fea12bc8b85f69fb11378e18af705e58b9a86c903d104`), DepositLogic `0xcab821709338df0f718491d0f3038fbD6a16CfbE` (create tx `0xc05a58f5406f90eeaf6cc7c42e6fadb423b5d4fb70b52655ac4a7b6b103c9c59`); LiquidityLogic + ERC20DepositTokenFactory unchanged. Impl deployed + beacon repointed via `FabricaLendingPoolUpgrade.s.sol` (impl create tx `0x91c043b3312b83968b2f082f4a55334a287c32ccfddfe091ff5a0bd18ca5fe52`); beacon `0xe1b74cbf78a693E6289dC1c983D8bC2e5097139E` repointed from prior impl `0x09b91D006ecAC914e84e34C82f8266118Aaee8ED` via `UpgradeableBeacon.upgradeTo` (tx `0x3c59e896ea6d9e6984c241ed58759144b9c569acd0cf5b1b51b7255e21d7cbef`). Soil ships the lockstep `supportsBorrowerParam` per-pool flag (soil #1100). |
+| 2026-06-11 (ENG-3231) | Sepolia | `0x78F794373E7B4b2fCF86987C70abdA0e12fE9BB5` | Breaking 8-arg `borrow(address borrower, ...)` — designates the borrower-of-record/beneficial owner (repay redemption, liquidation surplus, refinance control all key off `loanReceipt.borrower`); collateral still pulled from `msg.sender`, principal still sent to `msg.sender`. The LP-dispatch layer was reclaimed from the Pool concrete into the `BorrowLogic`/`DepositLogic` external libraries to fit EIP-170: **23,628 bytes (948 under)**. New libs deployed (the `[profile.sepolia].libraries` pins above point at these): BorrowLogic `0x97bD28cd2EC4D226969221574f7EeBE301bf7557` (create tx `0xad6f6577db380f2baf5fea12bc8b85f69fb11378e18af705e58b9a86c903d104`), DepositLogic `0xcab821709338df0f718491d0f3038fbD6a16CfbE` (create tx `0xc05a58f5406f90eeaf6cc7c42e6fadb423b5d4fb70b52655ac4a7b6b103c9c59`); LiquidityLogic + ERC20DepositTokenFactory unchanged. Impl deployed + beacon repointed via `FabricaLendingPoolUpgrade.s.sol` (impl create tx `0x91c043b3312b83968b2f082f4a55334a287c32ccfddfe091ff5a0bd18ca5fe52`); beacon `0xe1B74Cbf78a693e6289dc1C983D8BC2E5097139e` repointed from prior impl `0x09b91D006ecAC914e84e34C82f8266118Aaee8ED` via `UpgradeableBeacon.upgradeTo` (tx `0x3c59e896ea6d9e6984c241ed58759144b9c569acd0cf5b1b51b7255e21d7cbef`). Soil ships the lockstep `supportsBorrowerParam` per-pool flag (soil #1100). |
 
 ### Live verification (Sepolia, 2026-05-27)
 
@@ -321,7 +332,7 @@ is the unchanged BeaconProxy).
 
 Live Sepolia pool `0x6C56d0953377D7AB479BBA85Da8d61050F774c0B` is a **BeaconProxy**
 created via `PoolFactory.createProxied(beacon, params)` against beacon
-`0xe1b74cbf78a693E6289dC1c983D8bC2e5097139E`. It is **not** an EIP-1167 clone
+`0xe1B74Cbf78a693e6289dc1C983D8BC2E5097139e`. It is **not** an EIP-1167 clone
 from `create()`.
 
 ### setPriceOracle (item 2) — size-safe design
@@ -345,6 +356,9 @@ in the operational control plane (Safe delay module), not on-chain.
 
 ### Design-review knobs (WP-B / oracle repoint) — Tim/Fede sign-off pre-deploy
 
+> ⛔ **Repoint is NOT possible on Sepolia today** — the live beacon serves 2.15. Every row
+> below describes merged 2.16 source, not deployed capability.
+
 | Knob | Start proposal | Notes |
 |------|----------------|-------|
 | Pool mode (Sepolia) | BeaconProxy via `createProxied` | Confirmed live; not EIP-1167 clone |
@@ -367,6 +381,9 @@ bash script/check-pool-size.sh
 ```
 
 ### Launch path scripts (item 3) — **no agent broadcasts**
+
+> ⛔ `FabricaLendingPoolScheduleOracle.s.sol` produces `setPriceOracle` calldata, which
+> **no live Sepolia pool can execute today** (2.15). Beacon upgrade first.
 
 - `script/FabricaLendingPoolCreateWithAggregator.s.sol` — createProxied with aggregator
 - `script/FabricaLendingPoolScheduleOracle.s.sol` — setPriceOracle calldata helper

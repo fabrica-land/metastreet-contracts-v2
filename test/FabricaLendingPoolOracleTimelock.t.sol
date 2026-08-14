@@ -157,6 +157,27 @@ contract FabricaLendingPoolOracleTimelockTest is Test {
         assertEq(IPoolOracleViews(second).admin(), address(factory));
     }
 
+    /* ENG-3519: a pool must not be creatable with a zero/codeless oracle.
+       `ExternalPriceOracle.price` returns 0 WITHOUT reverting when the oracle address is
+       zero, and a zero price still originates at the full limit of an Absolute-limit
+       tick — so a pool born that way lends against unpriced collateral. On an
+       implementation predating the 2.16 `setPriceOracle` fallback there is no repoint,
+       which makes it unrecoverable. Guarded at initialize, mirroring the repoint guard. */
+    function test_createProxied_rejectsZeroOracle() public {
+        /* Build params FIRST: _poolParams deploys a mock currency token, and arming
+           expectRevert before that would catch the mock's deployment instead. */
+        bytes memory params = _poolParams(address(0));
+        vm.expectRevert(abi.encodeWithSelector(ExternalPriceOracle.InvalidPriceOracle.selector, address(0)));
+        factory.createProxied(address(beacon), params);
+    }
+
+    function test_createProxied_rejectsCodelessOracle() public {
+        address eoa = makeAddr("eoa-oracle-at-initialize");
+        bytes memory params = _poolParams(eoa);
+        vm.expectRevert(abi.encodeWithSelector(ExternalPriceOracle.InvalidPriceOracle.selector, eoa));
+        factory.createProxied(address(beacon), params);
+    }
+
     function _poolParams(address priceOracle) internal returns (bytes memory) {
         address[] memory collateralTokens = new address[](1);
         collateralTokens[0] = address(0xCA11A7E);
