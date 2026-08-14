@@ -326,6 +326,12 @@ from `create()`.
 
 ### setPriceOracle (item 2) — size-safe design
 
+> ⛔ **NOT DEPLOYED (verified 2026-08-14).** The live Sepolia beacon still serves
+> **2.15**, so `setPriceOracle` exists nowhere on live Sepolia and a repoint is
+> **not possible today**. The section below describes the merged 2.16 source. A
+> beacon upgrade is a prerequisite — see "ENG-3519 — Sepolia launch report"
+> at the end of this file.
+
 IMPLEMENTATION_VERSION `2.16` adds `setPriceOracle(address)` (selector
 `0x530e784f`) via a size-constrained `fallback` on
 `WeightedRateERC1155CollectionPool`. Caller must be pool `admin()` or
@@ -397,25 +403,42 @@ Full report: https://github.com/fabrica-land/fabrica-v3/blob/main/wrap-ups/artif
 
 **Mechanism:** `Tick.LimitType.Absolute` vs `Ratio` in `contracts/Tick.sol` (`decode`: Ratio → `oraclePrice * bps / 10_000`).
 
-## ENG-3519 — Sepolia launch report & broadcast-ready package
+## ENG-3519 — Sepolia launch report & gated launch sequence
 
-Full report: [`ENG-3519-SEPOLIA-LAUNCH-REPORT.md`](./ENG-3519-SEPOLIA-LAUNCH-REPORT.md)
+Full report (evidence, parameter tables, gated launch sequence):
+<https://github.com/fabrica-land/fabrica-v3/blob/main/wrap-ups/artifacts/ENG-3519-sepolia-launch-report.md>
 
-Status as of 2026-08-14: **the launch pool is NOT deployed on Sepolia.** The
-broadcast is Tim/Fede-gated (see WP-B item 3 above); this lane delivered a
-script dry-run, a full acceptance rehearsal on a Sepolia fork, and a four-step
-broadcast-ready package instead.
+Status as of 2026-08-14: **the launch pool is NOT deployed on Sepolia.** The broadcast is
+Tim/Fede-gated (see WP-B item 3 above); this lane delivered a script dry-run, a full
+acceptance rehearsal on a pinned Sepolia fork, and a four-step gated launch sequence.
 
-Three facts from that report that change the deploy plan:
+Five facts from that report that change the deploy plan:
 
 1. **Live beacon is at IMPLEMENTATION_VERSION `2.15`, not `2.16`.** WP-B's
-   `setPriceOracle` is merged in source but exists nowhere on live Sepolia. A
-   beacon upgrade is a prerequisite for *repoint* capability — but **not** for
-   the launch pool itself, since the aggregator is wired at `initialize()`,
-   which 2.15 already supports.
-2. **Neither `FabricaAttributeOracle` nor `FabricaOracleAggregator` is
-   deployed** on Sepolia. The launch is a four-step sequence, not one tx. Note
-   the fact store's `registrySeasonDelay` is 1 day, so step 1 must land ≥24h
-   before the pool can price anything.
-3. **Tick split re-measured 2026-08-14: 85.84% Ratio / 14.16% Absolute** by node
-   value — unchanged from the 2026-07-29 WP-C snapshot.
+   `setPriceOracle` is merged in source but exists nowhere on live Sepolia. A beacon
+   upgrade is a prerequisite for *repoint* capability — but **not** for the launch pool
+   itself, since the aggregator is wired at `initialize()`, which 2.15 already supports.
+   Deferring the upgrade until after pool creation keeps the live pool untouched, at the
+   cost of having no recovery path from a wrong immutable in the aggregator.
+2. **Neither `FabricaAttributeOracle` nor `FabricaOracleAggregator` is deployed** on
+   Sepolia, and neither has a deploy script yet. The launch is a four-step sequence, not
+   one tx.
+3. ⚠️ **Seeding ordering trap.** `registrySeasonDelay` and `maxSilence` are both 1 day.
+   Register + `writePrice` at T0 and the heartbeat expires at the exact second seasoning
+   opens, after which every borrow reverts `CheckFailed(HEARTBEAT)`. Wait out the
+   seasoning delay, then **`writePrice` again for both sources immediately before
+   creating the pool**.
+4. ⚠️ **"Renounced" does not mean immutable.** `renounceAggregator()` freezes the
+   aggregator's knobs, but the aggregator reads every fact from `FabricaAttributeOracle`,
+   whose owner **can never renounce** (`renounceOwnership()` is disabled) and can change
+   publishers, sources and price bands at will. The fact-store owner is the real root of
+   trust and must be a Safe, not an EOA.
+5. **Tick split re-measured 2026-08-14: 85.84% Ratio / 14.16% Absolute** by node value —
+   unchanged from the 2026-07-29 WP-C snapshot. The Ratio-vs-Absolute price-coupling
+   mechanism is now regression-protected by a fork test that measures borrowable depth
+   before and after halving the oracle price.
+
+Commands in this repo's runbook use `--rpc-url "$SEPOLIA_RPC_URL"`: this repo's
+`foundry.toml` has **no** `[rpc_endpoints]` or `[etherscan]` section, so `--rpc-url sepolia`
+resolves to a file path and fails, and `--verify` needs an explicit
+`--etherscan-api-key`.
