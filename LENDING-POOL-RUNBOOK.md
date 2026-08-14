@@ -396,3 +396,26 @@ Full report: https://github.com/fabrica-land/fabrica-v3/blob/main/wrap-ups/artif
 **Why:** Ratio capacity scales with oracle price (expands when overpriced). Absolute capacity does not. Borrowers can skip low ticks (no guaranteed attachment). Oracle is origination-only — long durations rot without monitoring.
 
 **Mechanism:** `Tick.LimitType.Absolute` vs `Ratio` in `contracts/Tick.sol` (`decode`: Ratio → `oraclePrice * bps / 10_000`).
+
+## ENG-3519 — Sepolia launch report & broadcast-ready package
+
+Full report: [`ENG-3519-SEPOLIA-LAUNCH-REPORT.md`](./ENG-3519-SEPOLIA-LAUNCH-REPORT.md)
+
+Status as of 2026-08-14: **the launch pool is NOT deployed on Sepolia.** The
+broadcast is Tim/Fede-gated (see WP-B item 3 above); this lane delivered a
+script dry-run, a full acceptance rehearsal on a Sepolia fork, and a four-step
+broadcast-ready package instead.
+
+Three facts from that report that change the deploy plan:
+
+1. **Live beacon is at IMPLEMENTATION_VERSION `2.15`, not `2.16`.** WP-B's
+   `setPriceOracle` is merged in source but exists nowhere on live Sepolia. A
+   beacon upgrade is a prerequisite for *repoint* capability — but **not** for
+   the launch pool itself, since the aggregator is wired at `initialize()`,
+   which 2.15 already supports.
+2. **Neither `FabricaAttributeOracle` nor `FabricaOracleAggregator` is
+   deployed** on Sepolia. The launch is a four-step sequence, not one tx. Note
+   the fact store's `registrySeasonDelay` is 1 day, so step 1 must land ≥24h
+   before the pool can price anything.
+3. **Tick split re-measured 2026-08-14: 85.84% Ratio / 14.16% Absolute** by node
+   value — unchanged from the 2026-07-29 WP-C snapshot.
