@@ -15,8 +15,8 @@ import {PoolFactory} from "fabrica-lending-pools/PoolFactory.sol";
  * Empty `oracleContext` is the launch borrow path — the aggregator reads only
  * on-chain FAO facts.
  *
- * **No on-chain deploys from agents.** Tim/Fede-gated operators may broadcast.
- * Agents: forge script without --broadcast for dry-run; anvil for FV.
+ * Sepolia is a testnet: agents may broadcast and iterate there. Mainnet is not
+ * in scope for this script without the normal Safe/operator process.
  *
  * Required env:
  *   FABRICA_LENDING_FACTORY
@@ -27,6 +27,7 @@ import {PoolFactory} from "fabrica-lending-pools/PoolFactory.sol";
  *
  * Optional:
  *   FABRICA_LENDING_DRY_RUN=true  — log params only, no broadcast (default true for agents)
+ *   FABRICA_LENDING_DRY_RUN=false — broadcast on Sepolia/mainnet-selected RPC
  */
 contract FabricaLendingPoolCreateWithAggregatorScript is Script {
     function run() public {
@@ -50,7 +51,7 @@ contract FabricaLendingPoolCreateWithAggregatorScript is Script {
         console.log("Mode:        ", dryRun ? "DRY_RUN (no broadcast)" : "BROADCAST");
         console.log("Params len:  ", params.length);
         if (dryRun) {
-            console.log("Dry-run complete - operator broadcasts with FABRICA_LENDING_DRY_RUN=false");
+            console.log("Dry-run complete - broadcast with FABRICA_LENDING_DRY_RUN=false");
             return;
         }
         vm.startBroadcast();
