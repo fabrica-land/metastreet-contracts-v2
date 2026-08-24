@@ -114,6 +114,17 @@ libraries = [
     "contracts/tokenization/ERC20DepositTokenFactory.sol:ERC20DepositTokenFactory:0xD39789733F2A93405CFBb76a60C51Ebf612738b4",
 ]
 
+[rpc_endpoints]
+# RPC endpoint names do not select compiler profiles. Scripts that deploy or
+# verify linked pool implementations/libraries still need FOUNDRY_PROFILE=sepolia
+# or FOUNDRY_PROFILE=mainnet as appropriate.
+mainnet = "${MAINNET_RPC_URL}"
+sepolia = "${SEPOLIA_RPC_URL}"
+
+[etherscan]
+mainnet = { key = "${ETHERSCAN_API_KEY}" }
+sepolia = { key = "${ETHERSCAN_API_KEY}" }
+
 [fmt]
 line_length = 120
 # Upstream MetaStreet contracts (contracts/**) are preserved verbatim for

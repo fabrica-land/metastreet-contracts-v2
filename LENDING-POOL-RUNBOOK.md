@@ -380,7 +380,7 @@ bash script/check-pool-size.sh
 # OK: WeightedRateERC1155CollectionPool runtime=23909B (margin 667B)
 ```
 
-### Launch path scripts (item 3) — **no agent broadcasts**
+### Launch path scripts (item 3) — Sepolia broadcasts allowed
 
 > ⛔ `FabricaLendingPoolScheduleOracle.s.sol` produces `setPriceOracle` calldata, which
 > **no live Sepolia pool can execute today** (2.15). Beacon upgrade first.
@@ -388,7 +388,8 @@ bash script/check-pool-size.sh
 - `script/FabricaLendingPoolCreateWithAggregator.s.sol` — createProxied with aggregator
 - `script/FabricaLendingPoolScheduleOracle.s.sol` — setPriceOracle calldata helper
 
-Real chain broadcasts are Tim/Fede-gated. Agents use dry-run + throwaway anvil only.
+Sepolia is a testnet: agents may broadcast and redeploy there. Mainnet remains
+outside this launch path without the normal Safe/operator process.
 
 ### Acceptance (item 5)
 
